@@ -1,0 +1,22 @@
+## Confirmed FSM decisions
+
+- Selecting `OpenNight` while in `LOCKED_CLOSED` immediately begins unlocking.
+- `Disabled` mode does not honour the exit-button input.
+  - TODO: revisit/confirm this policy before release.
+- If the door opens while `LOCKING`:
+  - stop the lock command immediately;
+  - transition to `UNLOCKED_OPEN`.
+- If the door opens while `UNLOCKING`:
+  - stop the unlock command immediately;
+  - transition to `UNLOCKED_OPEN`.
+- Remove `LOCKED_OPEN` as a normal FSM state.
+  - Reason: the bolt sensor is not trustworthy with the door open, so
+    `door_open && bolt_locked` is not a valid observable physical state.
+  - Treat this combination as a sensor/physical fault instead.
+- Do not implement the historical struck-through
+  `electronic unlock after open_timeout`.
+- Do not implement the historical struck-through
+  `electronic unlock after locked_open_timeout`.
+  - These were intended to recover from a manually locked-open condition.
+  - That condition cannot be detected reliably enough to justify automatic
+    actuation, so the recovery was intentionally rejected.

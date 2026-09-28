@@ -1,0 +1,51 @@
+gs-sh-212d relays
+uln2803a Darlington driver   -inverting
+
+yellow and blue outputs go to the puck
+purple goes from puck to blue board
+
+white and white go to other board, to "button"
+
+left hand input side
+white/white goes into building (green pair in cat5 (sheathed / one notch) part of lock sensor
+pink/pink goes into building (orange pair in cat5 sheathed / one notch)  - door exit button
+yellow/yellow goes to green pair unsheathed  (door closed sensor)
+pink/pink on green board goes to blue board, third and fourth from bottom
+all three are 5V default, ground = signal
+
+
+3 pole connector with just a single white wire - solid brown, unsheathed ultimately goes to yellow wire to card reader
+two notched unsheathed blue goes to yellow to rfid
+two notched unsheathed orange goes to white rfid wire
+
+pink/black 2pole green connector, middle of 
+pink goes into small board 9-12V unregulated
+black goes to small board 
+black goes to blue pair in sheathed cable
+pink goes to brown pair sheathed
+
+
+solid orange unsheathed cable goes to small board white (bottom connectors)
+solid blue unsheathed cable goes to small board purple (bottom connectors)
+
+sheathed cable is one stripe
+
+box near door
+white flat wire - "cctv camera"
+exit button:
+green and blue connected
+red and yellow connected
+both connected to orange pair on one stripe
+
+lock sensor
+black cable: 
+brown - brown pair one notch  (power)
+black - single green wire on one notch
+blue - blue pair one notch (power) 
+
+
+card reader
+
+
+door closed sensor
+red and yellow (from black wire out side) to green pair in two notched sheath
