@@ -438,48 +438,48 @@ void DoorFsm::observe(DoorEvent event)
     }
 }
 
-bool DoorFsm::modeAllowsElectronicControl() const
+bool DoorFsm::modeAllowsElectronicControl()
 {
     return mode_ == OperatingMode::Standard ||
            mode_ == OperatingMode::OpenNight;
 }
 
-bool DoorFsm::modeIsStandard() const
+bool DoorFsm::modeIsStandard()
 {
     return mode_ == OperatingMode::Standard;
 }
 
-bool DoorFsm::modeIsOpenNight() const
+bool DoorFsm::modeIsOpenNight()
 {
     return mode_ == OperatingMode::OpenNight;
 }
 
-bool DoorFsm::modeIsDisabled() const
+bool DoorFsm::modeIsDisabled()
 {
     return mode_ == OperatingMode::Disabled;
 }
 
-bool DoorFsm::canRetryLock() const
+bool DoorFsm::canRetryLock()
 {
     return lockRetries_ < MAX_LOCK_RETRIES;
 }
 
-bool DoorFsm::canRetryUnlock() const
+bool DoorFsm::canRetryUnlock()
 {
     return unlockRetries_ < MAX_UNLOCK_RETRIES;
 }
 
-bool DoorFsm::physicalLockedClosed() const
+bool DoorFsm::physicalLockedClosed()
 {
     return doorClosed_ && boltLocked_;
 }
 
-bool DoorFsm::physicalUnlockedClosed() const
+bool DoorFsm::physicalUnlockedClosed()
 {
     return doorClosed_ && !boltLocked_;
 }
 
-bool DoorFsm::physicalUnlockedOpen() const
+bool DoorFsm::physicalUnlockedOpen()
 {
     return !doorClosed_ && !boltLocked_;
 }

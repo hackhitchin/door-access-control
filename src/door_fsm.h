@@ -36,17 +36,17 @@ private:
     void observe(DoorEvent event);
 
     // Guards.
-    bool modeAllowsElectronicControl() const;
-    bool modeIsStandard() const;
-    bool modeIsOpenNight() const;
-    bool modeIsDisabled() const;
+    bool modeAllowsElectronicControl();
+    bool modeIsStandard();
+    bool modeIsOpenNight();
+    bool modeIsDisabled() ;
 
-    bool canRetryLock() const;
-    bool canRetryUnlock() const;
+    bool canRetryLock();
+    bool canRetryUnlock();
 
-    bool physicalLockedClosed() const;
-    bool physicalUnlockedClosed() const;
-    bool physicalUnlockedOpen() const;
+    bool physicalLockedClosed();
+    bool physicalUnlockedClosed();
+    bool physicalUnlockedOpen();
 
     // Actions.
     void clearLockRetries();
