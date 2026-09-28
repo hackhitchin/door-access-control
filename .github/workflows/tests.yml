@@ -1,0 +1,41 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  native-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download ETL
+        run: |
+          git clone --depth 1 https://github.com/ETLCPP/etl.git third_party/etl
+
+      - name: Build tests
+        run: |
+          mkdir -p build
+
+          gcc \
+            -c third_party/unity/unity.c \
+            -Ithird_party/unity \
+            -o build/unity.o
+
+          g++ \
+            -std=c++17 \
+            -Wall -Wextra \
+            src/door_fsm.cpp \
+            test/test_all.cpp \
+            build/unity.o \
+            -Isrc \
+            -Ithird_party/unity \
+            -Ithird_party/etl/include \
+            -o build/test_smoke
+
+      - name: Run tests
+        run: |
+          ./build/test_smoke
