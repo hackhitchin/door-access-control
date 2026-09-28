@@ -66,6 +66,56 @@ jobs:
           lcov \
             --list build/coverage_filtered.info \
             --branch-coverage
+            
+      - name: Show missing coverage
+        run: |
+          echo "===== UNCOVERED LINES ====="
+          awk '
+            /^SF:/ {
+              file = substr($0, 4)
+            }
+            /^DA:/ {
+              split(substr($0, 4), a, ",")
+              if (a[2] == 0) {
+                print file ":" a[1]
+              }
+            }
+          ' build/coverage_filtered.info
+
+          echo ""
+          echo "===== UNCOVERED FUNCTIONS ====="
+          awk '
+            /^SF:/ {
+              file = substr($0, 4)
+            }
+            /^FN:/ {
+              split(substr($0, 4), a, ",")
+              fnline[a[2]] = a[1]
+            }
+            /^FNDA:/ {
+              split(substr($0, 6), a, ",")
+              if (a[1] == 0) {
+                print file ":" fnline[a[2]] "  " a[2]
+              }
+            }
+          ' build/coverage_filtered.info
+
+          echo ""
+          echo "===== UNCOVERED BRANCHES ====="
+          awk '
+            /^SF:/ {
+              file = substr($0, 4)
+            }
+            /^BRDA:/ {
+              split(substr($0, 6), a, ",")
+              if (a[4] == "0" || a[4] == "-") {
+                print file ":" a[1] \
+                      "  block=" a[2] \
+                      " branch=" a[3] \
+                      " taken=" a[4]
+              }
+            }
+          ' build/coverage_filtered.info
 
       - name: Enforce coverage
         run: |
