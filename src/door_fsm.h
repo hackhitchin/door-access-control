@@ -19,7 +19,6 @@ public:
 
     DoorState state() const;
     OperatingMode mode() const { return mode_; }
-
     bool doorClosed() const { return doorClosed_; }
     bool boltLocked() const { return boltLocked_; }
 
@@ -28,6 +27,7 @@ public:
 
     LockCommand lockCommand() const;
     FsmEffect effect() const { return effect_; }
+    FaultCode fault() const { return fault_; }
 
 private:
     static uint8_t id(DoorState state);
@@ -35,11 +35,10 @@ private:
 
     void observe(DoorEvent event);
 
-    // Guards.
+    // Guards. ETL state_chart requires non-const guard member functions.
     bool modeAllowsElectronicControl();
     bool modeIsStandard();
-    bool modeIsOpenNight();
-    bool modeIsDisabled() ;
+    bool modeIsDisabled();
 
     bool canRetryLock();
     bool canRetryUnlock();
@@ -47,6 +46,11 @@ private:
     bool physicalLockedClosed();
     bool physicalUnlockedClosed();
     bool physicalUnlockedOpen();
+
+    bool recoverStandardLocked();
+    bool recoverOpenNightLocked();
+    bool recoverEnabledUnlockedClosed();
+    bool recoverEnabledUnlockedOpen();
 
     // Actions.
     void clearLockRetries();
@@ -59,8 +63,16 @@ private:
     void restartAutoLockTimer();
     void noteOpenTimeout();
 
-    void clearLockRetriesAndRestartAutoLock();
     void clearUnlockRetriesAndRestartAutoLock();
+
+    void faultDoorOpenBoltLocked();
+    void faultLockFailed();
+    void faultUnlockFailed();
+    void faultDoorOpenTooLong();
+    void faultInvalidMode();
+
+    void clearFaultAndRetries();
+    void clearFaultRetriesAndRestartAutoLock();
 
     Chart chart_;
 
@@ -72,6 +84,7 @@ private:
     uint8_t unlockRetries_;
 
     FsmEffect effect_;
+    FaultCode fault_;
 
     static const Transition transitions_[];
 };

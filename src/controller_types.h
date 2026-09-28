@@ -10,30 +10,23 @@ enum class DoorState : uint8_t {
     LockRetryWait,
     UnlockedOpen,
     Disabled,
-
-    // Reserved for the later fault-handling pass.
     Error
 };
 
 enum class DoorEvent : uint8_t {
     RfidReleaseRequest = 0,
     ExitButtonRequest,
-
     DoorOpened,
     DoorClosed,
-
     BoltLocked,
     BoltUnlocked,
-
     ModeDisabled,
     ModeStandard,
     ModeOpenNight,
     ModeInvalid,
-
     AutoLockTimeout,
     OpenTimeout,
     MaxOpenTimeout,
-
     LockTimeout,
     UnlockTimeout,
     RetryDelayElapsed
@@ -56,4 +49,13 @@ enum class FsmEffect : uint8_t {
     None = 0,
     RestartAutoLockTimer,
     OpenTimeoutWarning
+};
+
+enum class FaultCode : uint8_t {
+    None = 0,
+    DoorOpenBoltLocked,
+    LockFailed,
+    UnlockFailed,
+    DoorOpenTooLong,
+    InvalidMode
 };
