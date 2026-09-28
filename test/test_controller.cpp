@@ -509,6 +509,35 @@ void test_unlock_timeout_fires_at_exact_deadline(void)
     EXPECT_COMMAND(controller, LockCommand::None);
 }
 
+void test_unlock_retry_wait_fires_at_exact_deadline(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::OpenNight, true, true);
+
+    DoorController controller(inputs, 0);
+
+    EXPECT_STATE(controller, DoorState::Unlocking);
+
+    controller.tick(UNLOCK_TIME_MS, inputs);
+    EXPECT_STATE(controller, DoorState::UnlockRetryWait);
+    EXPECT_COMMAND(controller, LockCommand::None);
+
+    controller.tick(
+        UNLOCK_TIME_MS + RETRY_DELAY_MS - 1,
+        inputs
+    );
+
+    EXPECT_STATE(controller, DoorState::UnlockRetryWait);
+
+    controller.tick(
+        UNLOCK_TIME_MS + RETRY_DELAY_MS,
+        inputs
+    );
+
+    EXPECT_STATE(controller, DoorState::Unlocking);
+    EXPECT_COMMAND(controller, LockCommand::Unlock);
+}
+
 void test_retry_wait_fires_at_exact_deadline(void)
 {
     ControllerInputs inputs =
@@ -943,6 +972,23 @@ void test_representative_sequence_always_has_state_appropriate_output(void)
     expectOutputMatchesState(controller);
 }
 
+void test_stable_standard_mode_change_is_forwarded(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::OpenNight, true, false);
+
+    DoorController controller(inputs, 0);
+
+    EXPECT_STATE(controller, DoorState::UnlockedClosed);
+
+    inputs.mode = OperatingMode::Standard;
+    controller.tick(100, inputs);
+    controller.tick(100 + DEBOUNCE_MODE_MS, inputs);
+
+    EXPECT_STATE(controller, DoorState::UnlockedClosed);
+    EXPECT_COMMAND(controller, LockCommand::None);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -982,6 +1028,7 @@ int main(void)
 
     RUN_TEST(test_lock_timeout_fires_at_exact_deadline);
     RUN_TEST(test_unlock_timeout_fires_at_exact_deadline);
+    RUN_TEST(test_unlock_retry_wait_fires_at_exact_deadline);
     RUN_TEST(test_retry_wait_fires_at_exact_deadline);
 
     RUN_TEST(test_standard_auto_lock_fires_at_exact_deadline);
@@ -1008,6 +1055,7 @@ int main(void)
     RUN_TEST(test_success_during_lock_retry_wait_prevents_another_attempt);
 
     RUN_TEST(test_representative_sequence_always_has_state_appropriate_output);
+    RUN_TEST(test_stable_standard_mode_change_is_forwarded);
 
     return UNITY_END();
 }

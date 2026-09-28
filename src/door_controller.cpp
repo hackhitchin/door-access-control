@@ -204,11 +204,6 @@ void DoorController::initialiseTimers(uint32_t nowMs)
         operationTimer_.start(nowMs, UNLOCK_TIME_MS);
     }
 
-    if (state == DoorState::LockRetryWait ||
-        state == DoorState::UnlockRetryWait) {
-        retryTimer_.start(nowMs, RETRY_DELAY_MS);
-    }
-
     if (state == DoorState::UnlockedOpen) {
         openWarningTimer_.start(nowMs, OPEN_TIMEOUT_MS);
         maxOpenTimer_.start(nowMs, MAX_OPEN_TIMEOUT_MS);
