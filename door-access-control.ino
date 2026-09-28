@@ -1,8 +1,8 @@
-#include "pin_defs.h"
-#include "controller_config.h"
-#include "controller_types.h"
-#include "door_fsm.h"
-#include "door_controller.h"
+#include "src/pin_defs.h"
+#include "src/controller_config.h"
+#include "src/controller_types.h"
+#include "src/door_fsm.h"
+#include "src/door_controller.h"
 
 namespace
 {

@@ -60,29 +60,29 @@
 - [x] Add timeout/event generation around the FSM
 - [x] Use wrap-safe `uint32_t` timing arithmetic
 - [x] Add controller/wrapper native test suite
-- [ ] Confirm controller/wrapper tests pass in GitHub Actions
-- [ ] Bring controller/wrapper code back to required coverage thresholds
+- [x] Confirm controller/wrapper tests pass in GitHub Actions
+- [x] Bring controller/wrapper code back to required coverage thresholds
 - [ ] Add Arduino Nano compile check in CI
 - [ ] Compile the complete firmware with the Arduino toolchain
 - [ ] Bench-test all physical inputs and relay outputs before door installation
 
 ## Documentation
 
-- [ ] Add/update `docs/io-contract.md`
-- [ ] Add/update `docs/transitions.md`
-- [ ] Add/update `docs/parameters.md`
-- [ ] Add/update `docs/invariants.md`
-- [ ] Add/update `docs/faults.md`
+- [x] Add/update `docs/io-contract.md`
+- [x] Add/update `docs/transitions.md`
+- [x] Add/update `docs/parameters.md`
+- [x] Add/update `docs/invariants.md`
+- [x] Add/update `docs/faults.md`
 - [ ] Add/update `docs/startup-recovery.md`
 - [ ] Add/update `docs/test-plan.md`
-- [ ] Add controller/wrapper test plan to `docs/`
+- [x] Add controller/wrapper test plan to `docs/`
 - [ ] Store the current editable FSM source plus exported diagram
-- [ ] Store lock and 433 MHz interface manuals under `reference/lock/`
-- [ ] Store current access-control system documentation under `reference/`
-- [ ] Store DipTrace PCB source and schematic exports under `hardware/pcb/`
-- [ ] Document wiring routes and wire colours
-- [ ] Document DIN terminal assignments
-- [ ] Store mechanical CAD for lock installation under `mechanical/lock/`
+- [x] Store lock and 433 MHz interface manuals under `reference/lock/`
+- [x] Store current access-control system documentation under `reference/`
+- [x] Store DipTrace PCB source and schematic exports under `hardware/pcb/`
+- [x] Document wiring routes and wire colours
+- [x] Document DIN terminal assignments
+- [x] Store mechanical CAD for lock installation under `mechanical/lock/`
 
 ## Software / testing
 

@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef ARDUINO
+#define ETL_NO_STL
+#include <Embedded_Template_Library.h>
+#endif
 #include <etl/state_chart.h>
 #include "controller_types.h"
 
