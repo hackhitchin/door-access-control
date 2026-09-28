@@ -51,27 +51,33 @@ jobs:
         run: |
           lcov \
             --capture \
+            --branch-coverage \
             --directory . \
             --output-file build/coverage.info \
             --ignore-errors mismatch
 
           lcov \
             --remove build/coverage.info \
-            '/usr/*' \
             'third_party/*' \
             'test/*' \
+            --branch-coverage \
             --output-file build/coverage_filtered.info
 
           lcov \
-            --list build/coverage_filtered.info
+            --list build/coverage_filtered.info \
+            --branch-coverage
 
       - name: Enforce coverage
         run: |
-          line_coverage=$(lcov --summary build/coverage_filtered.info \
+          line_coverage=$(lcov \
+            --summary build/coverage_filtered.info \
+            --branch-coverage \
             | grep "lines" \
             | sed -E 's/.*: ([0-9.]+)%.*/\1/')
 
-          branch_coverage=$(lcov --summary build/coverage_filtered.info \
+          branch_coverage=$(lcov \
+            --summary build/coverage_filtered.info \
+            --branch-coverage \
             | grep "branches" \
             | sed -E 's/.*: ([0-9.]+)%.*/\1/')
 
