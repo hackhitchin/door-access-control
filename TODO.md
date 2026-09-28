@@ -1,70 +1,123 @@
 # TODO
 
-## Hardware
 ## Hardware changes / decisions
-- [ ] Replace existing key switch with three-position key switch
-- [ ] Select three available Nano inputs for Disabled / Standard / OpenNight
-- [ ] Define electrical wiring of the three-position switch
-- [ ] Update DipTrace schematic for new key switch wiring
+
+- [ ] Replace existing key switch with three-position maintained key switch
+- [x] Allocate Nano inputs for the three operating modes using two signals:
+      D8 = Standard, D9 = Open Night, neither = Disabled, both = Invalid
+- [ ] Confirm the exact contact/wiring arrangement of the purchased key switch
+      matches the active-low `INPUT_PULLUP` scheme
+- [ ] Update DipTrace schematic for the new key-switch wiring
 - [ ] Confirm/configure ESP-RFID unlock pulse duration
 - [ ] Decide whether to fit backup maglock
-- [ ] If fitted, design backup maglock interface and failure behaviour
-- [ ] Design independent watchdog/monitoring system
+- [ ] If fitted, design backup-maglock interface and failure behaviour
+- [ ] Design independent watchdog / monitoring system
 - [ ] Decide whether to use existing FAULT relay/output for diagnostics
 
 ## FSM / behaviour
-- [ ] Update FSM diagram to distinguish RFID unlock from exit-button unlock
-- [ ] Add three operating modes: Disabled / Standard / Open Night
-- [ ] Add invalid key-switch state handling
-- [ ] Define startup / recovery behaviour for every stable physical state
-- [ ] Ignore RFID release already active at boot until it clears
-- [ ] Honour exit button if held during boot
-- [ ] Define behaviour for manual lock / unlock operation
-- [ ] Define behaviour for contradictory door/bolt sensors
-- [ ] Define behaviour when release request remains active
-- [ ] Define exact Standard-mode auto-lock timing
-- [ ] Define exact Open Night timing
-- [ ] Define lock timeout
-- [ ] Define unlock timeout
-- [ ] Define maximum lock retry count
-- [ ] Define maximum unlock retry count
-- [ ] Define open timeout / maximum-open timeout behaviour
-- [ ] Decide whether faults latch or clear automatically
-- [ ] Decide which faults should survive a controller reset
-Exit button while Disabled: should it still electronically unlock? - currently disabled means do nothing
+
+- [ ] Update the FSM diagram to distinguish RFID release from exit-button release
+- [x] Implement Disabled / Standard / Open Night operating modes
+- [x] Implement invalid key-switch state handling
+- [x] Define and implement startup reconstruction for current physical states
+- [x] Ignore RFID release already active at boot until it clears
+- [x] Honour exit button if held during boot when electronic control is enabled
+- [x] Define and implement manual lock / unlock behaviour
+- [x] Define and implement contradictory door/bolt sensor handling
+- [x] Define behaviour when a release request remains active
+- [x] Define Standard-mode auto-lock timing: 5 s
+- [x] Define current Open Night timing: 2 h
+- [x] Define lock timeout: 5 s
+- [x] Define unlock timeout: 5 s
+- [x] Define maximum lock retries: 2 after the initial attempt
+- [x] Define maximum unlock retries: 2 after the initial attempt
+- [x] Define open warning / maximum-open behaviour: 30 s warning, 5 min fault
+- [x] Faults auto-clear when the underlying condition is gone and a valid state
+      can be reconstructed
+- [x] Fault history does not survive controller reset
+- [ ] Revisit whether the exit button should remain ignored in Disabled mode
+- [ ] Review whether startup reconstruction belongs inside `DoorController` or
+      should move into the FSM / a dedicated recovery entry point
 
 ## Outputs / actuation
-- [ ] Confirm T1 remains held low for entire LOCKING state
-- [ ] Confirm T2 remains held low for entire UNLOCKING state
-- [ ] Confirm relay release behaviour on timeout / fault
-- [ ] Ensure LOCK and UNLOCK can never be asserted simultaneously
+
+- [x] T1 remains asserted for the complete `Locking` state
+- [x] T2 remains asserted for the complete `Unlocking` state
+- [x] Lock/unlock outputs are released during retry wait, Disabled and Error
+- [x] LOCK and UNLOCK cannot be intentionally asserted simultaneously
+- [x] Arduino output adapter uses break-before-make when reversing command
+- [ ] Bench-test relay polarity and break-before-make behaviour on a real Nano /
+      controller PCB
+
+## Arduino / controller wrapper
+
+- [x] Add thin `door_access_control.ino` hardware adapter
+- [x] Add central `src/pin_defs.h`
+- [x] Add controller timing/debounce configuration
+- [x] Add input debounce layer
+- [x] Add RFID boot disarm / re-arm logic
+- [x] Add exit-held-at-boot handling
+- [x] Add timeout/event generation around the FSM
+- [x] Use wrap-safe `uint32_t` timing arithmetic
+- [x] Add controller/wrapper native test suite
+- [ ] Confirm controller/wrapper tests pass in GitHub Actions
+- [ ] Bring controller/wrapper code back to required coverage thresholds
+- [ ] Add Arduino Nano compile check in CI
+- [ ] Compile the complete firmware with the Arduino toolchain
+- [ ] Bench-test all physical inputs and relay outputs before door installation
 
 ## Documentation
-- [ ] Add `docs/io-contract.md`
-- [ ] Create `docs/transitions.md`
-- [ ] Create `docs/invariants.md`
-- [ ] Create `docs/faults.md`
-- [ ] Create `docs/startup-recovery.md`
-- [ ] Create `docs/test-plan.md`
-- [ ] Store current FSM source + exported diagram
-- [ ] Store lock and 433 MHz interface manuals
-- [ ] Store current access-control system documentation
-- [ ] Store DipTrace PCB source and schematic export
+
+- [ ] Add/update `docs/io-contract.md`
+- [ ] Add/update `docs/transitions.md`
+- [ ] Add/update `docs/parameters.md`
+- [ ] Add/update `docs/invariants.md`
+- [ ] Add/update `docs/faults.md`
+- [ ] Add/update `docs/startup-recovery.md`
+- [ ] Add/update `docs/test-plan.md`
+- [ ] Add controller/wrapper test plan to `docs/`
+- [ ] Store the current editable FSM source plus exported diagram
+- [ ] Store lock and 433 MHz interface manuals under `reference/lock/`
+- [ ] Store current access-control system documentation under `reference/`
+- [ ] Store DipTrace PCB source and schematic exports under `hardware/pcb/`
 - [ ] Document wiring routes and wire colours
 - [ ] Document DIN terminal assignments
-- [ ] Store mechanical CAD for lock installation
+- [ ] Store mechanical CAD for lock installation under `mechanical/lock/`
 
 ## Software / testing
-- [ ] Decide final FSM implementation library
-- [ ] Decide whether to use ETL `state_chart`
-- [ ] Set up native host tests
-- [ ] Vendor or otherwise pin Unity test framework
-- [ ] Set up GitHub Actions
-- [ ] Add Arduino Nano compile check in CI
-- [ ] Add host-side unit tests
-- [ ] Add coverage reporting
-- [ ] Decide required coverage threshold
-- [ ] Add exhaustive state × event tests
-- [ ] Add startup-state tests
-- [ ] Add failure / retry / timeout sequence tests
-- [ ] Add millis wraparound test
+
+- [x] Select ETL `state_chart` as the FSM implementation
+- [x] Set up native host tests using Unity
+- [x] Vendor Unity test framework in the repository
+- [x] Set up GitHub Actions
+- [x] Add FSM host-side transition/fault/sequence tests
+- [x] Add exhaustive working-state × event safety tests
+- [x] Add coverage reporting with LCOV/GCOV
+- [x] Enforce 100% line coverage for instrumented project code
+- [x] Enforce 100% function coverage for instrumented project code
+- [x] Set branch coverage threshold to >= 88% to allow documented unreachable
+      compiler-generated short-circuit branches
+- [x] Add startup-state tests for the current controller implementation
+- [x] Add failure / retry / timeout sequence tests
+- [x] Add `millis()` wraparound tests for the controller layer
+- [ ] Consider pinning ETL to a specific release/commit instead of cloning HEAD
+- [ ] Decide whether Unity should also be version-pinned/documented explicitly
+- [ ] Add a CI build that verifies the code fits and compiles for Arduino Nano
+- [ ] Add hardware-in-the-loop / bench test procedure before deployment
+
+## Deployment / validation
+
+- [ ] Verify exact installed wiring against `pin_defs.h`
+- [ ] Verify key-switch positions electrically
+- [ ] Verify door reed polarity
+- [ ] Verify PR12-4DN lock sensor polarity and thresholds
+- [ ] Verify BlueBoard release polarity and pulse duration
+- [ ] Verify exit-button polarity
+- [ ] Verify T1 lock direction
+- [ ] Verify T2 unlock direction
+- [ ] Test every operating mode on bench hardware
+- [ ] Test power-up in each relevant physical door/bolt/mode combination
+- [ ] Test lock and unlock timeout/retry behaviour on real hardware
+- [ ] Test sensor contradiction fault on bench hardware
+- [ ] Test recovery from each observable fault
+- [ ] Review final firmware and test results before installing on the real door
