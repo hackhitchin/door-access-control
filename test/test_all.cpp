@@ -760,6 +760,49 @@ void test_error_open_night_open_recovers_when_bolt_unlocked(void)
     EXPECT_STATE(fsm, DoorState::UnlockedOpen);
     EXPECT_FAULT(fsm, FaultCode::None);
 }
+void test_invalid_mode_error_does_not_recover_on_door_closed(void)
+{
+    DoorFsm fsm(
+        DoorState::UnlockedOpen,
+        OperatingMode::Standard,
+        false,
+        false
+    );
+
+    fsm.start();
+
+    fsm.process(DoorEvent::ModeInvalid);
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::InvalidMode);
+
+    fsm.process(DoorEvent::DoorClosed);
+
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::InvalidMode);
+    EXPECT_COMMAND(fsm, LockCommand::None);
+}
+
+void test_invalid_mode_error_does_not_recover_on_bolt_unlocked(void)
+{
+    DoorFsm fsm(
+        DoorState::UnlockedOpen,
+        OperatingMode::Standard,
+        false,
+        false
+    );
+
+    fsm.start();
+
+    fsm.process(DoorEvent::ModeInvalid);
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::InvalidMode);
+
+    fsm.process(DoorEvent::BoltUnlocked);
+
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::InvalidMode);
+    EXPECT_COMMAND(fsm, LockCommand::None);
+}
 
 int main(void)
 {
@@ -824,5 +867,7 @@ int main(void)
     RUN_TEST(test_error_open_night_unlocked_closed_skips_locked_guard);
     RUN_TEST(test_error_standard_open_recovers_when_bolt_unlocked);
     RUN_TEST(test_error_open_night_open_recovers_when_bolt_unlocked);
+    RUN_TEST(test_invalid_mode_error_does_not_recover_on_door_closed);
+    RUN_TEST(test_invalid_mode_error_does_not_recover_on_bolt_unlocked);
     return UNITY_END();
 }
