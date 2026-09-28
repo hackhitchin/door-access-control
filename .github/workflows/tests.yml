@@ -12,6 +12,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Download ETL
+        run: |
+          git clone --depth 1 https://github.com/ETLCPP/etl.git third_party/etl
+
       - name: Build tests
         run: |
           mkdir -p build
