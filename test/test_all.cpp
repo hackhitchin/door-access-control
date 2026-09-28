@@ -57,6 +57,23 @@ void test_locked_closed_disabled_goes_disabled(void)
     EXPECT_COMMAND(fsm, LockCommand::None);
 }
 
+void test_unlocked_open_door_closed_disabled_goes_disabled(void)
+{
+    DoorFsm fsm(
+        DoorState::UnlockedOpen,
+        OperatingMode::Disabled,
+        false,
+        false
+    );
+
+    fsm.start();
+    fsm.process(DoorEvent::DoorClosed);
+
+    EXPECT_STATE(fsm, DoorState::Disabled);
+    EXPECT_COMMAND(fsm, LockCommand::None);
+    EXPECT_FAULT(fsm, FaultCode::None);
+}
+
 void test_locked_closed_open_night_unlocks(void)
 {
     DoorFsm fsm(DoorState::LockedClosed, OperatingMode::Standard, true, true);
@@ -622,6 +639,171 @@ void test_lock_retry_then_success_sequence(void)
     EXPECT_FAULT(fsm, FaultCode::None);
 }
 
+// -----------------------------------------------------------------------------
+// Guard branch coverage
+// -----------------------------------------------------------------------------
+void test_disabled_to_standard_open_does_not_match_locked_or_closed_unlocked_guards(void)
+{
+    DoorFsm fsm(
+        DoorState::Disabled,
+        OperatingMode::Disabled,
+        false,
+        false
+    );
+
+    fsm.start();
+    fsm.process(DoorEvent::ModeStandard);
+
+    EXPECT_STATE(fsm, DoorState::UnlockedOpen);
+    EXPECT_COMMAND(fsm, LockCommand::None);
+}
+
+
+void test_disabled_to_open_night_open_does_not_match_closed_guards(void)
+{
+    DoorFsm fsm(
+        DoorState::Disabled,
+        OperatingMode::Disabled,
+        false,
+        false
+    );
+
+    fsm.start();
+    fsm.process(DoorEvent::ModeOpenNight);
+
+    EXPECT_STATE(fsm, DoorState::UnlockedOpen);
+    EXPECT_COMMAND(fsm, LockCommand::None);
+}
+
+
+void test_error_standard_unlocked_closed_skips_locked_guard(void)
+{
+    DoorFsm fsm(
+        DoorState::UnlockedOpen,
+        OperatingMode::Standard,
+        false,
+        false
+    );
+
+    fsm.start();
+
+    // Enter Error.
+    fsm.process(DoorEvent::MaxOpenTimeout);
+    EXPECT_STATE(fsm, DoorState::Error);
+
+    // Change the physical state while remaining in Error.
+    fsm.process(DoorEvent::DoorClosed);
+
+    EXPECT_STATE(fsm, DoorState::UnlockedClosed);
+    EXPECT_FAULT(fsm, FaultCode::None);
+}
+
+
+void test_error_open_night_unlocked_closed_skips_locked_guard(void)
+{
+    DoorFsm fsm(
+        DoorState::UnlockedOpen,
+        OperatingMode::OpenNight,
+        false,
+        false
+    );
+
+    fsm.start();
+
+    fsm.process(DoorEvent::MaxOpenTimeout);
+    EXPECT_STATE(fsm, DoorState::Error);
+
+    fsm.process(DoorEvent::DoorClosed);
+
+    EXPECT_STATE(fsm, DoorState::UnlockedClosed);
+    EXPECT_FAULT(fsm, FaultCode::None);
+}
+
+
+void test_error_standard_open_recovers_when_bolt_unlocked(void)
+{
+    DoorFsm fsm(
+        DoorState::UnlockedOpen,
+        OperatingMode::Standard,
+        false,
+        false
+    );
+
+    fsm.start();
+
+    fsm.process(DoorEvent::MaxOpenTimeout);
+    EXPECT_STATE(fsm, DoorState::Error);
+
+    fsm.process(DoorEvent::BoltUnlocked);
+
+    EXPECT_STATE(fsm, DoorState::UnlockedOpen);
+    EXPECT_FAULT(fsm, FaultCode::None);
+}
+
+
+void test_error_open_night_open_recovers_when_bolt_unlocked(void)
+{
+    DoorFsm fsm(
+        DoorState::UnlockedOpen,
+        OperatingMode::OpenNight,
+        false,
+        false
+    );
+
+    fsm.start();
+
+    fsm.process(DoorEvent::MaxOpenTimeout);
+    EXPECT_STATE(fsm, DoorState::Error);
+
+    fsm.process(DoorEvent::BoltUnlocked);
+
+    EXPECT_STATE(fsm, DoorState::UnlockedOpen);
+    EXPECT_FAULT(fsm, FaultCode::None);
+}
+void test_invalid_mode_error_does_not_recover_on_door_closed(void)
+{
+    DoorFsm fsm(
+        DoorState::UnlockedOpen,
+        OperatingMode::Standard,
+        false,
+        false
+    );
+
+    fsm.start();
+
+    fsm.process(DoorEvent::ModeInvalid);
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::InvalidMode);
+
+    fsm.process(DoorEvent::DoorClosed);
+
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::InvalidMode);
+    EXPECT_COMMAND(fsm, LockCommand::None);
+}
+
+void test_invalid_mode_error_does_not_recover_on_bolt_unlocked(void)
+{
+    DoorFsm fsm(
+        DoorState::UnlockedOpen,
+        OperatingMode::Standard,
+        false,
+        false
+    );
+
+    fsm.start();
+
+    fsm.process(DoorEvent::ModeInvalid);
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::InvalidMode);
+
+    fsm.process(DoorEvent::BoltUnlocked);
+
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::InvalidMode);
+    EXPECT_COMMAND(fsm, LockCommand::None);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -630,6 +812,7 @@ int main(void)
     RUN_TEST(test_locked_closed_exit_button_starts_unlocking);
     RUN_TEST(test_locked_closed_manual_unlock_goes_unlocked_closed);
     RUN_TEST(test_locked_closed_disabled_goes_disabled);
+    RUN_TEST(test_unlocked_open_door_closed_disabled_goes_disabled);
     RUN_TEST(test_locked_closed_open_night_unlocks);
     RUN_TEST(test_unlocking_success);
     RUN_TEST(test_unlocking_door_open_aborts);
@@ -678,5 +861,13 @@ int main(void)
     RUN_TEST(test_normal_rfid_entry_sequence);
     RUN_TEST(test_lock_retry_then_success_sequence);
 
+    RUN_TEST(test_disabled_to_standard_open_does_not_match_locked_or_closed_unlocked_guards);
+    RUN_TEST(test_disabled_to_open_night_open_does_not_match_closed_guards);
+    RUN_TEST(test_error_standard_unlocked_closed_skips_locked_guard);
+    RUN_TEST(test_error_open_night_unlocked_closed_skips_locked_guard);
+    RUN_TEST(test_error_standard_open_recovers_when_bolt_unlocked);
+    RUN_TEST(test_error_open_night_open_recovers_when_bolt_unlocked);
+    RUN_TEST(test_invalid_mode_error_does_not_recover_on_door_closed);
+    RUN_TEST(test_invalid_mode_error_does_not_recover_on_bolt_unlocked);
     return UNITY_END();
 }

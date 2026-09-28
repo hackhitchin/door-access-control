@@ -6,21 +6,27 @@ on:
 
 jobs:
   native-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download ETL
         run: |
           git clone --depth 1 https://github.com/ETLCPP/etl.git third_party/etl
 
-      - name: Build tests
+      - name: Install coverage tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lcov
+
+      - name: Build tests with coverage
         run: |
           mkdir -p build
 
           gcc \
+            --coverage \
             -c third_party/unity/unity.c \
             -Ithird_party/unity \
             -o build/unity.o
@@ -28,14 +34,115 @@ jobs:
           g++ \
             -std=c++17 \
             -Wall -Wextra \
+            --coverage \
             src/door_fsm.cpp \
             test/test_all.cpp \
             build/unity.o \
             -Isrc \
             -Ithird_party/unity \
             -Ithird_party/etl/include \
-            -o build/test_smoke
+            -o build/test_all
 
       - name: Run tests
         run: |
-          ./build/test_smoke
+          ./build/test_all
+
+      - name: Generate coverage report
+        run: |
+          lcov \
+            --capture \
+            --branch-coverage \
+            --directory . \
+            --output-file build/coverage.info \
+            --ignore-errors mismatch
+
+          lcov \
+            --remove build/coverage.info \
+            'third_party/*' \
+            'test/*' \
+            --branch-coverage \
+            --output-file build/coverage_filtered.info
+
+          echo "===== COVERAGE SUMMARY ====="
+          lcov \
+            --summary build/coverage_filtered.info \
+            --branch-coverage
+            
+      - name: Show missing coverage
+        run: |
+          echo "===== UNCOVERED LINES ====="
+          awk '
+            /^SF:/ {
+              file = substr($0, 4)
+            }
+            /^DA:/ {
+              split(substr($0, 4), a, ",")
+              if (a[2] == 0) {
+                print file ":" a[1]
+              }
+            }
+          ' build/coverage_filtered.info
+
+          echo ""
+          echo "===== UNCOVERED FUNCTIONS ====="
+          awk '
+            /^SF:/ {
+              file = substr($0, 4)
+            }
+            /^FN:/ {
+              split(substr($0, 4), a, ",")
+              fnline[a[2]] = a[1]
+            }
+            /^FNDA:/ {
+              split(substr($0, 6), a, ",")
+              if (a[1] == 0) {
+                print file ":" fnline[a[2]] "  " a[2]
+              }
+            }
+          ' build/coverage_filtered.info
+
+          echo ""
+          echo "===== UNCOVERED BRANCHES ====="
+          awk '
+            /^SF:/ {
+              file = substr($0, 4)
+            }
+            /^BRDA:/ {
+              split(substr($0, 6), a, ",")
+              if (a[4] == "0" || a[4] == "-") {
+                print file ":" a[1] \
+                      "  block=" a[2] \
+                      " branch=" a[3] \
+                      " taken=" a[4]
+              }
+            }
+          ' build/coverage_filtered.info
+
+      - name: Enforce coverage
+        run: |
+          line_coverage=$(lcov \
+            --summary build/coverage_filtered.info \
+            --branch-coverage \
+            | grep "lines" \
+            | sed -E 's/.*: ([0-9.]+)%.*/\1/')
+
+          branch_coverage=$(lcov \
+            --summary build/coverage_filtered.info \
+            --branch-coverage \
+            | grep "branches" \
+            | sed -E 's/.*: ([0-9.]+)%.*/\1/')
+
+          echo "Line coverage: $line_coverage%"
+          echo "Branch coverage: $branch_coverage%"
+
+          awk "BEGIN { exit !($line_coverage >= 100.0) }" || {
+            echo "Line coverage is below 100%"
+            exit 1
+          }
+          # Branch coverage cannot reach 100% because several compiler-generated
+          # short-circuit branches represent physically unreachable sensor/mode
+          # combinations. We still require 100% line and function coverage.
+          awk "BEGIN { exit !($branch_coverage >= 88.0) }" || {
+            echo "Branch coverage is below 88%"
+            exit 1
+          }
