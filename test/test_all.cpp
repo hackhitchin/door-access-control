@@ -193,11 +193,43 @@ void test_locking_door_open_aborts(void)
     EXPECT_COMMAND(fsm, LockCommand::None);
 }
 
-void test_locking_rfid_reverses_to_unlock(void)
+void test_locking_rfid_queues_release_until_lock_completes(void)
 {
     DoorFsm fsm(DoorState::Locking, OperatingMode::Standard, true, false);
     fsm.start();
+
     fsm.process(DoorEvent::RfidReleaseRequest);
+    EXPECT_STATE(fsm, DoorState::Locking);
+    EXPECT_COMMAND(fsm, LockCommand::Lock);
+
+    fsm.process(DoorEvent::BoltLocked);
+    EXPECT_STATE(fsm, DoorState::Unlocking);
+    EXPECT_COMMAND(fsm, LockCommand::Unlock);
+}
+
+void test_locking_pending_release_unlocks_on_timeout(void)
+{
+    DoorFsm fsm(DoorState::Locking, OperatingMode::Standard, true, false);
+    fsm.start();
+
+    fsm.process(DoorEvent::ExitButtonRequest);
+    fsm.process(DoorEvent::LockTimeout);
+
+    EXPECT_STATE(fsm, DoorState::Unlocking);
+    EXPECT_COMMAND(fsm, LockCommand::Unlock);
+    TEST_ASSERT_EQUAL_UINT8(0, fsm.lockRetries());
+}
+
+void test_lock_retry_wait_pending_release_unlocks_when_wait_finishes(void)
+{
+    DoorFsm fsm(DoorState::LockRetryWait, OperatingMode::Standard, true, false);
+    fsm.start();
+
+    fsm.process(DoorEvent::RfidReleaseRequest);
+    EXPECT_STATE(fsm, DoorState::LockRetryWait);
+    EXPECT_COMMAND(fsm, LockCommand::None);
+
+    fsm.process(DoorEvent::RetryDelayElapsed);
     EXPECT_STATE(fsm, DoorState::Unlocking);
     EXPECT_COMMAND(fsm, LockCommand::Unlock);
 }
@@ -868,7 +900,9 @@ int main(void)
     RUN_TEST(test_open_night_to_standard_gets_fresh_timer);
     RUN_TEST(test_locking_success);
     RUN_TEST(test_locking_door_open_aborts);
-    RUN_TEST(test_locking_rfid_reverses_to_unlock);
+    RUN_TEST(test_locking_rfid_queues_release_until_lock_completes);
+    RUN_TEST(test_locking_pending_release_unlocks_on_timeout);
+    RUN_TEST(test_lock_retry_wait_pending_release_unlocks_when_wait_finishes);
     RUN_TEST(test_lock_timeout_enters_wait);
     RUN_TEST(test_lock_retry_wait_restarts_lock);
     RUN_TEST(test_unlocked_open_door_closed_standard);

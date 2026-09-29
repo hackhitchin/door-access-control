@@ -71,18 +71,27 @@ const DoorFsm::Transition DoorFsm::transitions_[] = {
                id(DoorState::Error), &DoorFsm::faultInvalidMode),
 
     // LOCKING
+    // Release requests are queued until the current lock command has either
+    // completed or timed out. This avoids acknowledging release while a
+    // one-shot lock command may still be completing mechanically.
+    Transition(id(DoorState::Locking), id(DoorEvent::BoltLocked),
+               id(DoorState::Unlocking), &DoorFsm::clearLockRetries,
+               &DoorFsm::releasePending),
     Transition(id(DoorState::Locking), id(DoorEvent::BoltLocked),
                id(DoorState::LockedClosed), &DoorFsm::clearLockRetries),
     Transition(id(DoorState::Locking), id(DoorEvent::DoorOpened),
                id(DoorState::UnlockedOpen), &DoorFsm::clearLockRetries),
     Transition(id(DoorState::Locking), id(DoorEvent::RfidReleaseRequest),
-               id(DoorState::Unlocking), &DoorFsm::clearLockRetries,
+               id(DoorState::Locking), &DoorFsm::setReleasePending,
                &DoorFsm::modeAllowsElectronicControl),
     Transition(id(DoorState::Locking), id(DoorEvent::ExitButtonRequest),
-               id(DoorState::Unlocking), &DoorFsm::clearLockRetries,
+               id(DoorState::Locking), &DoorFsm::setReleasePending,
                &DoorFsm::modeAllowsElectronicControl),
     Transition(id(DoorState::Locking), id(DoorEvent::ModeOpenNight),
-               id(DoorState::Unlocking), &DoorFsm::clearLockRetries),
+               id(DoorState::Locking), &DoorFsm::setReleasePending),
+    Transition(id(DoorState::Locking), id(DoorEvent::LockTimeout),
+               id(DoorState::Unlocking), &DoorFsm::clearLockRetries,
+               &DoorFsm::releasePending),
     Transition(id(DoorState::Locking), id(DoorEvent::LockTimeout),
                id(DoorState::LockRetryWait), &DoorFsm::countLockRetry,
                &DoorFsm::canRetryLock),
@@ -95,19 +104,25 @@ const DoorFsm::Transition DoorFsm::transitions_[] = {
 
     // LOCK_RETRY_WAIT
     Transition(id(DoorState::LockRetryWait), id(DoorEvent::RetryDelayElapsed),
+               id(DoorState::Unlocking), &DoorFsm::clearLockRetries,
+               &DoorFsm::releasePending),
+    Transition(id(DoorState::LockRetryWait), id(DoorEvent::RetryDelayElapsed),
                id(DoorState::Locking)),
+    Transition(id(DoorState::LockRetryWait), id(DoorEvent::BoltLocked),
+               id(DoorState::Unlocking), &DoorFsm::clearLockRetries,
+               &DoorFsm::releasePending),
     Transition(id(DoorState::LockRetryWait), id(DoorEvent::BoltLocked),
                id(DoorState::LockedClosed), &DoorFsm::clearLockRetries),
     Transition(id(DoorState::LockRetryWait), id(DoorEvent::DoorOpened),
                id(DoorState::UnlockedOpen), &DoorFsm::clearLockRetries),
     Transition(id(DoorState::LockRetryWait), id(DoorEvent::RfidReleaseRequest),
-               id(DoorState::Unlocking), &DoorFsm::clearLockRetries,
+               id(DoorState::LockRetryWait), &DoorFsm::setReleasePending,
                &DoorFsm::modeAllowsElectronicControl),
     Transition(id(DoorState::LockRetryWait), id(DoorEvent::ExitButtonRequest),
-               id(DoorState::Unlocking), &DoorFsm::clearLockRetries,
+               id(DoorState::LockRetryWait), &DoorFsm::setReleasePending,
                &DoorFsm::modeAllowsElectronicControl),
     Transition(id(DoorState::LockRetryWait), id(DoorEvent::ModeOpenNight),
-               id(DoorState::Unlocking), &DoorFsm::clearLockRetries),
+               id(DoorState::LockRetryWait), &DoorFsm::setReleasePending),
     Transition(id(DoorState::LockRetryWait), id(DoorEvent::ModeDisabled),
                id(DoorState::Disabled), &DoorFsm::clearLockRetries),
     Transition(id(DoorState::LockRetryWait), id(DoorEvent::ModeInvalid),
@@ -245,6 +260,7 @@ DoorFsm::DoorFsm(DoorState initialState,
       mode_(initialMode),
       doorClosed_(initialDoorClosed),
       boltLocked_(initialBoltLocked),
+      releasePending_(false),
       lockRetries_(0),
       unlockRetries_(0),
       effect_(FsmEffect::None),
@@ -348,6 +364,11 @@ bool DoorFsm::canRetryUnlock()
     return unlockRetries_ < MAX_UNLOCK_RETRIES;
 }
 
+bool DoorFsm::releasePending()
+{
+    return releasePending_;
+}
+
 bool DoorFsm::physicalOpenBoltLocked()
 {
     return !doorClosed_ && boltLocked_;
@@ -391,6 +412,7 @@ bool DoorFsm::recoverEnabledUnlockedOpen()
 void DoorFsm::clearLockRetries()
 {
     lockRetries_ = 0;
+    releasePending_ = false;
 }
 
 void DoorFsm::clearUnlockRetries()
@@ -402,6 +424,7 @@ void DoorFsm::clearBothRetries()
 {
     lockRetries_ = 0;
     unlockRetries_ = 0;
+    releasePending_ = false;
 }
 
 void DoorFsm::countLockRetry()
@@ -412,6 +435,11 @@ void DoorFsm::countLockRetry()
 void DoorFsm::countUnlockRetry()
 {
     ++unlockRetries_;
+}
+
+void DoorFsm::setReleasePending()
+{
+    releasePending_ = true;
 }
 
 void DoorFsm::restartAutoLockTimer()

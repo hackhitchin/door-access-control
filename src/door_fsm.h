@@ -48,6 +48,7 @@ private:
 
     bool canRetryLock();
     bool canRetryUnlock();
+    bool releasePending();
 
     bool physicalOpenBoltLocked();
     bool physicalLockedClosed();
@@ -66,6 +67,7 @@ private:
 
     void countLockRetry();
     void countUnlockRetry();
+    void setReleasePending();
 
     void restartAutoLockTimer();
     void noteOpenTimeout();
@@ -86,6 +88,7 @@ private:
     OperatingMode mode_;
     bool doorClosed_;
     bool boltLocked_;
+    bool releasePending_;
 
     uint8_t lockRetries_;
     uint8_t unlockRetries_;

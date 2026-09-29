@@ -22,9 +22,12 @@ DoorState DoorController::initialStateFor(const ControllerInputs& inputs)
     }
 
     if (inputs.doorClosed && !inputs.boltLocked) {
-        return (inputs.mode == OperatingMode::Standard)
-                   ? DoorState::Locking
-                   : DoorState::UnlockedClosed;
+        // A held exit button at boot is already a release request. No lock
+        // command has yet been issued, so do not start one merely to queue it.
+        if (inputs.mode == OperatingMode::Standard && !inputs.exitPressed) {
+            return DoorState::Locking;
+        }
+        return DoorState::UnlockedClosed;
     }
 
     return DoorState::UnlockedOpen;

@@ -211,7 +211,7 @@ void test_exit_held_at_boot_with_unlocked_bolt_completes_release_immediately(voi
     EXPECT_FAULT(controller, FaultCode::None);
 }
 
-void test_release_during_locking_with_already_unlocked_bolt_completes_immediately(void)
+void test_release_during_locking_waits_for_lock_completion_then_unlocks(void)
 {
     ControllerInputs inputs =
         makeInputs(OperatingMode::Standard, true, false);
@@ -223,6 +223,36 @@ void test_release_during_locking_with_already_unlocked_bolt_completes_immediatel
     controller.tick(100, inputs);
     controller.tick(100 + DEBOUNCE_EXIT_MS, inputs);
 
+    // The release is queued while the previous lock command may still be in
+    // flight. It is not acknowledged merely because the bolt still reads open.
+    EXPECT_STATE(controller, DoorState::Locking);
+    EXPECT_COMMAND(controller, LockCommand::Lock);
+
+    inputs.boltLocked = true;
+    controller.tick(500, inputs);
+    controller.tick(500 + DEBOUNCE_BOLT_MS, inputs);
+
+    EXPECT_STATE(controller, DoorState::Unlocking);
+    EXPECT_COMMAND(controller, LockCommand::Unlock);
+    EXPECT_FAULT(controller, FaultCode::None);
+}
+
+void test_release_during_locking_timeout_completes_if_bolt_still_unlocked(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::Standard, true, false);
+
+    DoorController controller(inputs, 0);
+
+    inputs.exitPressed = true;
+    controller.tick(100, inputs);
+    controller.tick(100 + DEBOUNCE_EXIT_MS, inputs);
+    EXPECT_STATE(controller, DoorState::Locking);
+
+    controller.tick(LOCK_TIME_MS, inputs);
+
+    // The lock never confirmed. The pending release takes precedence over a
+    // retry, then level reconciliation sees that the bolt is already unlocked.
     EXPECT_STATE(controller, DoorState::UnlockedClosed);
     EXPECT_COMMAND(controller, LockCommand::None);
     EXPECT_FAULT(controller, FaultCode::None);
@@ -1151,7 +1181,8 @@ int main(void)
     RUN_TEST(test_rfid_active_at_boot_is_not_a_release_request);
     RUN_TEST(test_exit_held_at_boot_is_honoured);
     RUN_TEST(test_exit_held_at_boot_with_unlocked_bolt_completes_release_immediately);
-    RUN_TEST(test_release_during_locking_with_already_unlocked_bolt_completes_immediately);
+    RUN_TEST(test_release_during_locking_waits_for_lock_completion_then_unlocks);
+    RUN_TEST(test_release_during_locking_timeout_completes_if_bolt_still_unlocked);
     RUN_TEST(test_exit_held_at_boot_is_ignored_in_disabled_mode);
 
     RUN_TEST(test_bool_debounce_ignores_short_pulse);
