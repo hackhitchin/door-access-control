@@ -1055,6 +1055,37 @@ void test_success_during_lock_retry_wait_prevents_another_attempt(void)
     EXPECT_FAULT(controller, FaultCode::None);
 }
 
+void test_fault_indicator_activates_after_second_failed_lock_attempt(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::Standard, true, false);
+
+    DoorController controller(inputs, 0);
+    TEST_ASSERT_FALSE(controller.faultIndicated());
+
+    // Initial attempt fails: retry count becomes one, but no degraded warning yet.
+    controller.tick(LOCK_TIME_MS, inputs);
+    EXPECT_STATE(controller, DoorState::LockRetryWait);
+    TEST_ASSERT_FALSE(controller.faultIndicated());
+
+    // Retry 1 starts after 1 s and then also fails. This is the second failed
+    // lock attempt overall, so indicate the degraded/unsecured condition while
+    // continuing the longer back-off sequence.
+    controller.tick(LOCK_TIME_MS + LOCK_RETRY_1_DELAY_MS, inputs);
+    EXPECT_STATE(controller, DoorState::Locking);
+
+    controller.tick(LOCK_TIME_MS + LOCK_RETRY_1_DELAY_MS + LOCK_TIME_MS, inputs);
+    EXPECT_STATE(controller, DoorState::LockRetryWait);
+    TEST_ASSERT_TRUE(controller.faultIndicated());
+
+    // A late physical success during the wait clears retries and indication.
+    inputs.boltLocked = true;
+    controller.tick(11500UL, inputs);
+    controller.tick(11500UL + DEBOUNCE_BOLT_MS, inputs);
+    EXPECT_STATE(controller, DoorState::LockedClosed);
+    TEST_ASSERT_FALSE(controller.faultIndicated());
+}
+
 // -----------------------------------------------------------------------------
 // Controller-level output invariant checks.
 // -----------------------------------------------------------------------------
@@ -1234,6 +1265,7 @@ int main(void)
 
     RUN_TEST(test_lock_attempt_uses_backoff_then_ends_in_lock_failed);
     RUN_TEST(test_success_during_lock_retry_wait_prevents_another_attempt);
+    RUN_TEST(test_fault_indicator_activates_after_second_failed_lock_attempt);
 
     RUN_TEST(test_representative_sequence_always_has_state_appropriate_output);
     RUN_TEST(test_mode_centre_off_shorter_than_settle_time_is_not_published);

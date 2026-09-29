@@ -169,6 +169,7 @@ void setup()
 
     DoorController& c = controller();
     applyLockCommand(c.lockCommand(), millis());
+    digitalWrite(PIN_FAULT_RELAY, c.faultIndicated() ? HIGH : LOW);
 }
 
 void loop()
@@ -179,4 +180,5 @@ void loop()
     c.tick(nowMs, readInputs());
 
     applyLockCommand(c.lockCommand(), nowMs);
+    digitalWrite(PIN_FAULT_RELAY, c.faultIndicated() ? HIGH : LOW);
 }

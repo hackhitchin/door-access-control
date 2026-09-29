@@ -27,6 +27,10 @@ public:
     LockCommand lockCommand() const { return fsm_.lockCommand(); }
     FaultCode fault() const { return fsm_.fault(); }
     FsmEffect effect() const { return fsm_.effect(); }
+    bool faultIndicated() const
+    {
+        return fsm_.fault() != FaultCode::None || fsm_.lockRetries() >= 2U;
+    }
 
     bool doorClosed() const { return door_.value(); }
     bool boltLocked() const { return bolt_.value(); }
