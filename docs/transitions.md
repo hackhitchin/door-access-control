@@ -238,14 +238,16 @@ Output while in state:
 
 | Event | Guard | Action | Next state | Notes |
 |---|---|---|---|---|
-| `BOLT_LOCKED` | door still closed | release T1; clear lock retry count | `LOCKED_CLOSED` | Successful lock |
+| `BOLT_LOCKED` | release pending | release T1; clear lock retry count; begin unlock | `UNLOCKING` | A real unlock command follows the completed in-flight lock |
+| `BOLT_LOCKED` | no release pending | release T1; clear lock retry count | `LOCKED_CLOSED` | Successful lock |
+| `LOCK_TIMEOUT` | release pending | release T1; clear lock retry count; begin unlock | `UNLOCKING` | Pending release suppresses another lock retry |
 | `LOCK_TIMEOUT` | retries remain | release T1; increment retry count; start back-off timer | `LOCK_RETRY_WAIT` | Up to 5 retries after initial attempt |
 | `LOCK_TIMEOUT` | retries exhausted | release T1; record lock fault | `ERROR` | |
 | `DOOR_OPENED` | — | release T1 immediately | `UNLOCKED_OPEN` | Abort active lock command |
-| `RFID_RELEASE_REQUEST` | — | release T1; begin unlock | `UNLOCKING` | Release overrides locking |
-| `EXIT_BUTTON_REQUEST` | — | release T1; begin unlock | `UNLOCKING` | Exit request overrides locking |
+| `RFID_RELEASE_REQUEST` | mode != Disabled | mark release pending; keep current lock attempt | `LOCKING` | Do not depend on mid-travel abort behaviour |
+| `EXIT_BUTTON_REQUEST` | mode != Disabled | mark release pending; keep current lock attempt | `LOCKING` | Do not depend on mid-travel abort behaviour |
 | `MODE_DISABLED` | — | release T1 | `DISABLED` | |
-| `MODE_OPEN_NIGHT` | — | release T1; begin unlock | `UNLOCKING` | Open Night immediately unlocks |
+| `MODE_OPEN_NIGHT` | — | mark release pending; keep current lock attempt | `LOCKING` | Unlock follows completion/timeout |
 | `MODE_STANDARD` | — | continue lock | `LOCKING` | |
 | `MODE_INVALID` | — | release T1; record mode fault | `ERROR` | |
 | `BOLT_UNLOCKED` | — | none | `LOCKING` | Still waiting for lock |
@@ -258,13 +260,15 @@ Output while in state:
 
 | Event | Guard | Action | Next state | Notes |
 |---|---|---|---|---|
-| `RETRY_DELAY_ELAPSED` | — | restart lock attempt | `LOCKING` | T1 is reasserted on entry to `LOCKING` |
-| `BOLT_LOCKED` | — | clear lock retry count | `LOCKED_CLOSED` | Mechanism may finish moving after T1 is released |
+| `RETRY_DELAY_ELAPSED` | release pending | clear lock retry count; begin unlock | `UNLOCKING` | Do not start another lock retry |
+| `RETRY_DELAY_ELAPSED` | no release pending | restart lock attempt | `LOCKING` | T1 is reasserted on entry to `LOCKING` |
+| `BOLT_LOCKED` | release pending | clear lock retry count; begin unlock | `UNLOCKING` | Late lock completion is followed by a real unlock command |
+| `BOLT_LOCKED` | no release pending | clear lock retry count | `LOCKED_CLOSED` | Mechanism may finish moving after T1 is released |
 | `DOOR_OPENED` | — | clear lock retry count | `UNLOCKED_OPEN` | Abort retry sequence |
-| `RFID_RELEASE_REQUEST` | mode != Disabled | clear lock retry count; begin unlock | `UNLOCKING` | Release overrides retry wait |
-| `EXIT_BUTTON_REQUEST` | mode != Disabled | clear lock retry count; begin unlock | `UNLOCKING` | Exit overrides retry wait |
+| `RFID_RELEASE_REQUEST` | mode != Disabled | mark release pending | `LOCK_RETRY_WAIT` | Suppress the next lock retry |
+| `EXIT_BUTTON_REQUEST` | mode != Disabled | mark release pending | `LOCK_RETRY_WAIT` | Suppress the next lock retry |
 | `MODE_DISABLED` | — | clear lock retry count | `DISABLED` | |
-| `MODE_OPEN_NIGHT` | — | clear lock retry count; begin unlock | `UNLOCKING` | |
+| `MODE_OPEN_NIGHT` | — | mark release pending | `LOCK_RETRY_WAIT` | Suppress the next lock retry |
 
 ---
 
@@ -449,7 +453,13 @@ On entry to `LOCKING`:
     assert T1
     start lock timeout
 
-If `BOLT_LOCKED` occurs before timeout:
+If a release request arrives during `LOCKING`, mark it pending and continue
+the current attempt. On `BOLT_LOCKED` or `LOCK_TIMEOUT`, a pending release takes
+priority and the controller enters `UNLOCKING` rather than accepting the locked
+state or starting another lock retry. A release request received during
+`LOCK_RETRY_WAIT` similarly suppresses the next lock retry.
+
+Without a pending release, if `BOLT_LOCKED` occurs before timeout:
 
     release T1
     clear lock retry count
@@ -457,17 +467,13 @@ If `BOLT_LOCKED` occurs before timeout:
 
 If `LOCK_TIMEOUT` occurs and retries remain:
 
-    release/restart command according to retry policy
-    increment lock retry count
-    remain LOCKING
-
-If retries are exhausted:
-
     release T1
-    record lock failure
-    enter ERROR
+    increment lock retry count
+    enter LOCK_RETRY_WAIT
 
-Use a 1 s retry delay. Retry counters count retries after the initial attempt.
+Lock retry waits use 1 s, 10 s, 100 s, 1,000 s and 10,000 s before retries
+1 through 5. If the fifth retry attempt times out, record `LockFailed` and enter
+`ERROR`. Retry counters count retries after the initial attempt.
 
 ---
 
@@ -562,16 +568,11 @@ The transition rules assume the following policy:
 - `unlock_time` = 5 s
 - maximum lock retries = 5, with 1/10/100/1000/10000 s back-off
 - maximum unlock retries = 2
-- retry delay = 1 s
+- unlock retry delay = 1 s
 
-Retry counters count retries after the initial attempt.
-
-Therefore, with a maximum retry count of 2:
-
-    initial attempt
-    retry 1
-    retry 2
-    ERROR
+Retry counters count retries after the initial attempt. Locking therefore allows
+the initial attempt plus five retries using the back-off above. Unlocking allows
+the initial attempt plus two retries separated by 1 s waits.
 
 A retry counter value of zero means no retries have yet occurred.
 

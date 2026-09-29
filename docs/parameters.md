@@ -26,6 +26,9 @@ timings should be measured on the installed hardware and adjusted if required.
 | lock retry back-off | 1 s, 10 s, 100 s, 1,000 s, 10,000 s | Delays before lock retries 1-5 |
 | `MAX_LOCK_RETRIES` | 5 | Retries after the initial lock attempt |
 | `MAX_UNLOCK_RETRIES` | 2 | Retries after the initial unlock attempt |
+| `RELAY_REVERSAL_DEADTIME_MS` | 250 ms | Minimum off-time before energising the opposite relay |
+| `STARTUP_INPUT_STABLE_MS` | 100 ms | Required unchanged startup input interval |
+| `STARTUP_INPUT_TIMEOUT_MS` | 2,000 ms | Maximum startup qualification wait |
 
 ---
 
@@ -57,7 +60,10 @@ confirms locked, the controller releases T1 between attempts and waits:
 
 After the fifth retry attempt times out, the controller enters
 `ERROR / LockFailed`. Door opening, a release request, Disabled mode, or a
-successful bolt-locked indication interrupts the retry sequence.
+successful bolt-locked indication interrupts the retry sequence. A valid release
+request during `LOCKING` or `LOCK_RETRY_WAIT` is queued and suppresses any
+further lock retry; the controller proceeds to `UNLOCKING` when the current
+lock operation reaches a known completion/timeout point.
 
 Unlocking retains two retries with a 1 s wait between attempts.
 

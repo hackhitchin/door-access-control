@@ -12,7 +12,7 @@
 - [ ] Decide whether to fit backup maglock
 - [ ] If fitted, design backup-maglock interface and failure behaviour
 - [ ] Design independent watchdog / monitoring system
-- [ ] Decide whether to use existing FAULT relay/output for diagnostics
+- [x] Drive existing FAULT relay for FSM faults and degraded extended lock retry
 
 ## FSM / behaviour
 
@@ -45,7 +45,7 @@
 - [x] T2 remains asserted for the complete `Unlocking` state
 - [x] Lock/unlock outputs are released during retry wait, Disabled and Error
 - [x] LOCK and UNLOCK cannot be intentionally asserted simultaneously
-- [x] Arduino output adapter uses 250 ms break-before-make when reversing command
+- [x] Arduino output adapter enforces 250 ms opposite-direction dead time across intermediate `None` commands
 - [ ] Bench-test relay polarity and break-before-make behaviour on a real Nano /
       controller PCB
 
@@ -64,7 +64,7 @@
 - [x] Bring controller/wrapper code back to required coverage thresholds
 - [x] Add Arduino Nano compile check in CI
 - [x] Compile the complete firmware with the Arduino toolchain
-- [ ] Bench-test all physical inputs and relay outputs before door installation
+- [ ] Bench-test all physical inputs, FAULT indication and relay outputs before door installation
 
 ## Documentation
 
@@ -75,7 +75,7 @@
 - [x] Add/update `docs/faults.md`
 - [x] Add/update `docs/startup-recovery.md`
 - [x] Add/update `docs/test-plan.md`
-- [x] Add controller/wrapper test plan to `docs/`
+- [x] Consolidate controller/wrapper coverage into canonical `docs/test-plan.md`
 - [ ] Store the current editable FSM source plus exported diagram
 - [x] Store lock and 433 MHz interface manuals under `reference/lock/`
 - [x] Store current access-control system documentation under `reference/`
@@ -103,6 +103,7 @@
 - [x] Pin ETL used by native and Arduino CI builds to 20.48.1
 - [ ] Decide whether Unity should also be version-pinned/documented explicitly
 - [x] Add a CI build that verifies the code fits and compiles for Arduino Nano
+- [x] Add optional compile-time serial diagnostics for bench testing
 - [ ] Add hardware-in-the-loop / bench test procedure before deployment
 
 ## Deployment / validation
