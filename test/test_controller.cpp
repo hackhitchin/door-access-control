@@ -1080,6 +1080,43 @@ void test_mode_centre_off_shorter_than_settle_time_is_not_published(void)
     EXPECT_COMMAND(controller, LockCommand::None);
 }
 
+void test_mode_change_while_open_restarts_max_open_timer_for_new_mode(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::Standard, false, false);
+
+    DoorController controller(inputs, 0);
+
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    // Change to Open Night.
+    inputs.mode = OperatingMode::OpenNight;
+    controller.tick(1000, inputs);
+    controller.tick(1000 + DEBOUNCE_MODE_MS, inputs);
+
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    // Standard's old 5-minute deadline must no longer fault.
+    controller.tick(MAX_OPEN_TIMEOUT_MS + 1, inputs);
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    // But Open Night's two-hour deadline should.
+    const uint32_t modeChangeTime = 1000 + DEBOUNCE_MODE_MS;
+
+    controller.tick(
+        modeChangeTime + OPEN_NIGHT_MAX_OPEN_TIMEOUT_MS - 1,
+        inputs
+    );
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    controller.tick(
+        modeChangeTime + OPEN_NIGHT_MAX_OPEN_TIMEOUT_MS,
+        inputs
+    );
+    EXPECT_STATE(controller, DoorState::Error);
+    EXPECT_FAULT(controller, FaultCode::DoorOpenTooLong);
+}
+
 void test_stable_standard_mode_change_is_forwarded(void)
 {
     ControllerInputs inputs =
@@ -1169,6 +1206,7 @@ int main(void)
 
     RUN_TEST(test_representative_sequence_always_has_state_appropriate_output);
     RUN_TEST(test_mode_centre_off_shorter_than_settle_time_is_not_published);
+    RUN_TEST(test_mode_change_while_open_restarts_max_open_timer_for_new_mode);
     RUN_TEST(test_stable_standard_mode_change_is_forwarded);
 
     return UNITY_END();
