@@ -2,14 +2,17 @@
 
 DoorState DoorController::initialStateFor(const ControllerInputs& inputs)
 {
+    // Disabled is authoritative: electronic control remains off regardless of
+    // sensor combination. Contradictory sensors are evaluated when control is
+    // enabled again.
+    if (inputs.mode == OperatingMode::Disabled) {
+        return DoorState::Disabled;
+    }
+
     // Contradictory open + locked is pushed through the existing
     // DoorOpenBoltLocked fault path immediately after fsm_.start().
     if (!inputs.doorClosed && inputs.boltLocked) {
         return DoorState::LockedClosed;
-    }
-
-    if (inputs.mode == OperatingMode::Disabled) {
-        return DoorState::Disabled;
     }
 
     if (inputs.doorClosed && inputs.boltLocked) {
@@ -48,8 +51,11 @@ DoorController::DoorController(const ControllerInputs& initialInputs,
 {
     fsm_.start();
 
-    // Startup fault priority: contradictory physical sensors before mode fault.
-    if (!initialInputs.doorClosed && initialInputs.boltLocked) {
+    // Disabled suppresses electronic fault handling at startup. Once enabled,
+    // contradictory physical sensors take priority over an invalid mode.
+    if (initialInputs.mode == OperatingMode::Disabled) {
+        initialiseTimers(nowMs);
+    } else if (!initialInputs.doorClosed && initialInputs.boltLocked) {
         dispatch(DoorEvent::DoorOpened, nowMs);
     } else if (initialInputs.mode == OperatingMode::Invalid) {
         dispatch(DoorEvent::ModeInvalid, nowMs);

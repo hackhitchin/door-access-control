@@ -13,4 +13,4 @@ constexpr uint32_t DEBOUNCE_DOOR_MS      = 30UL;
 constexpr uint32_t DEBOUNCE_BOLT_MS      = 20UL;
 constexpr uint32_t DEBOUNCE_RFID_MS      = 10UL;
 constexpr uint32_t DEBOUNCE_EXIT_MS      = 30UL;
-constexpr uint32_t DEBOUNCE_MODE_MS      = 50UL;
+constexpr uint32_t DEBOUNCE_MODE_MS      = 1000UL;

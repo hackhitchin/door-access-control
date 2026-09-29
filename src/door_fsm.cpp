@@ -150,11 +150,17 @@ const DoorFsm::Transition DoorFsm::transitions_[] = {
     Transition(id(DoorState::Disabled), id(DoorEvent::BoltUnlocked),
                id(DoorState::Disabled)),
     Transition(id(DoorState::Disabled), id(DoorEvent::ModeStandard),
+               id(DoorState::Error), &DoorFsm::faultDoorOpenBoltLocked,
+               &DoorFsm::physicalOpenBoltLocked),
+    Transition(id(DoorState::Disabled), id(DoorEvent::ModeStandard),
                id(DoorState::LockedClosed), nullptr, &DoorFsm::physicalLockedClosed),
     Transition(id(DoorState::Disabled), id(DoorEvent::ModeStandard),
                id(DoorState::Locking), nullptr, &DoorFsm::physicalUnlockedClosed),
     Transition(id(DoorState::Disabled), id(DoorEvent::ModeStandard),
                id(DoorState::UnlockedOpen), nullptr, &DoorFsm::physicalUnlockedOpen),
+    Transition(id(DoorState::Disabled), id(DoorEvent::ModeOpenNight),
+               id(DoorState::Error), &DoorFsm::faultDoorOpenBoltLocked,
+               &DoorFsm::physicalOpenBoltLocked),
     Transition(id(DoorState::Disabled), id(DoorEvent::ModeOpenNight),
                id(DoorState::Unlocking), nullptr, &DoorFsm::physicalLockedClosed),
     Transition(id(DoorState::Disabled), id(DoorEvent::ModeOpenNight),
@@ -329,6 +335,11 @@ bool DoorFsm::canRetryLock()
 bool DoorFsm::canRetryUnlock()
 {
     return unlockRetries_ < MAX_UNLOCK_RETRIES;
+}
+
+bool DoorFsm::physicalOpenBoltLocked()
+{
+    return !doorClosed_ && boltLocked_;
 }
 
 bool DoorFsm::physicalLockedClosed()

@@ -47,6 +47,7 @@ private:
     bool canRetryLock();
     bool canRetryUnlock();
 
+    bool physicalOpenBoltLocked();
     bool physicalLockedClosed();
     bool physicalUnlockedClosed();
     bool physicalUnlockedOpen();

@@ -119,6 +119,35 @@ void test_startup_disabled_does_not_drive_motor(void)
     EXPECT_COMMAND(controller, LockCommand::None);
 }
 
+void test_startup_disabled_open_and_bolt_locked_stays_disabled(void)
+{
+    const ControllerInputs inputs =
+        makeInputs(OperatingMode::Disabled, false, true);
+
+    DoorController controller(inputs, 0);
+
+    EXPECT_STATE(controller, DoorState::Disabled);
+    EXPECT_COMMAND(controller, LockCommand::None);
+    EXPECT_FAULT(controller, FaultCode::None);
+}
+
+void test_disabled_contradiction_faults_when_standard_is_selected(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::Disabled, false, true);
+
+    DoorController controller(inputs, 0);
+    EXPECT_STATE(controller, DoorState::Disabled);
+
+    inputs.mode = OperatingMode::Standard;
+    controller.tick(100, inputs);
+    controller.tick(100 + DEBOUNCE_MODE_MS, inputs);
+
+    EXPECT_STATE(controller, DoorState::Error);
+    EXPECT_FAULT(controller, FaultCode::DoorOpenBoltLocked);
+    EXPECT_COMMAND(controller, LockCommand::None);
+}
+
 void test_startup_open_and_bolt_locked_enters_sensor_fault(void)
 {
     const ControllerInputs inputs =
@@ -1001,6 +1030,28 @@ void test_representative_sequence_always_has_state_appropriate_output(void)
     expectOutputMatchesState(controller);
 }
 
+void test_mode_centre_off_shorter_than_settle_time_is_not_published(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::OpenNight, true, false);
+
+    DoorController controller(inputs, 0);
+    EXPECT_STATE(controller, DoorState::UnlockedClosed);
+
+    inputs.mode = OperatingMode::Disabled;
+    controller.tick(100, inputs);
+    controller.tick(100 + DEBOUNCE_MODE_MS - 1, inputs);
+    EXPECT_STATE(controller, DoorState::UnlockedClosed);
+
+    // Move on to Standard before Disabled has been stable for a full second.
+    inputs.mode = OperatingMode::Standard;
+    controller.tick(100 + DEBOUNCE_MODE_MS - 1, inputs);
+    controller.tick(100 + 2 * DEBOUNCE_MODE_MS - 1, inputs);
+
+    EXPECT_STATE(controller, DoorState::UnlockedClosed);
+    EXPECT_COMMAND(controller, LockCommand::None);
+}
+
 void test_stable_standard_mode_change_is_forwarded(void)
 {
     ControllerInputs inputs =
@@ -1027,6 +1078,8 @@ int main(void)
     RUN_TEST(test_startup_open_night_closed_locked_starts_unlocking);
     RUN_TEST(test_startup_open_unlocked_does_not_drive_motor);
     RUN_TEST(test_startup_disabled_does_not_drive_motor);
+    RUN_TEST(test_startup_disabled_open_and_bolt_locked_stays_disabled);
+    RUN_TEST(test_disabled_contradiction_faults_when_standard_is_selected);
     RUN_TEST(test_startup_open_and_bolt_locked_enters_sensor_fault);
     RUN_TEST(test_startup_invalid_mode_enters_mode_fault);
 
@@ -1086,6 +1139,7 @@ int main(void)
     RUN_TEST(test_success_during_lock_retry_wait_prevents_another_attempt);
 
     RUN_TEST(test_representative_sequence_always_has_state_appropriate_output);
+    RUN_TEST(test_mode_centre_off_shorter_than_settle_time_is_not_published);
     RUN_TEST(test_stable_standard_mode_change_is_forwarded);
 
     return UNITY_END();
