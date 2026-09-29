@@ -4,6 +4,10 @@
 #include "src/door_fsm.h"
 #include "src/door_controller.h"
 
+#ifndef DOOR_SERIAL_DIAGNOSTICS
+#define DOOR_SERIAL_DIAGNOSTICS 0
+#endif
+
 namespace
 {
 
@@ -72,6 +76,39 @@ ControllerInputs readStableStartupInputs()
     // The normal debouncers and fault handling take over from this sample.
     return candidate;
 }
+
+#if DOOR_SERIAL_DIAGNOSTICS
+void printDiagnostics(const DoorController& c, uint32_t nowMs)
+{
+    static uint32_t lastPrintMs = 0;
+    if (static_cast<uint32_t>(nowMs - lastPrintMs) < 1000UL) {
+        return;
+    }
+    lastPrintMs = nowMs;
+
+    // Numeric enum values keep the diagnostics small; see controller_types.h.
+    Serial.print(F("t="));
+    Serial.print(nowMs);
+    Serial.print(F(" state="));
+    Serial.print(static_cast<uint8_t>(c.state()));
+    Serial.print(F(" mode="));
+    Serial.print(static_cast<uint8_t>(c.mode()));
+    Serial.print(F(" fault="));
+    Serial.print(static_cast<uint8_t>(c.fault()));
+    Serial.print(F(" indicated="));
+    Serial.print(c.faultIndicated() ? 1 : 0);
+    Serial.print(F(" cmd="));
+    Serial.print(static_cast<uint8_t>(c.lockCommand()));
+    Serial.print(F(" door="));
+    Serial.print(c.doorClosed() ? 1 : 0);
+    Serial.print(F(" bolt="));
+    Serial.print(c.boltLocked() ? 1 : 0);
+    Serial.print(F(" rfid="));
+    Serial.print(c.rfidActive() ? 1 : 0);
+    Serial.print(F(" exit="));
+    Serial.println(c.exitPressed() ? 1 : 0);
+}
+#endif
 
 void configurePins()
 {
@@ -165,6 +202,10 @@ void applyLockCommand(LockCommand command, uint32_t nowMs)
 
 void setup()
 {
+#if DOOR_SERIAL_DIAGNOSTICS
+    Serial.begin(115200);
+#endif
+
     configurePins();
 
     DoorController& c = controller();
@@ -181,4 +222,8 @@ void loop()
 
     applyLockCommand(c.lockCommand(), nowMs);
     digitalWrite(PIN_FAULT_RELAY, c.faultIndicated() ? HIGH : LOW);
+
+#if DOOR_SERIAL_DIAGNOSTICS
+    printDiagnostics(c, nowMs);
+#endif
 }
