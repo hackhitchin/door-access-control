@@ -1,11 +1,64 @@
-# ETL state-chart prototype
+# Door Access Controller
 
-This directory is a prototype of the *working-state* door-controller FSM using
-`etl::state_chart`.
+Arduino Nano based door-control firmware for the Hack Hitchin access-control
+system.
 
-It deliberately does **not** implement fault transitions yet.
+The Nano does **not** authenticate RFID cards. Credential verification is
+handled separately by the ESP-RFID Blue Board. The Nano is responsible for the
+door-control state machine, sensor handling, timing and the Utopic lock
+interface.
 
-## Included working states
+This project is being developed with an emphasis on:
+
+- predictable behaviour;
+- explicit failure handling;
+- simple hardware interfaces;
+- host-side automated testing;
+- code that remains approachable to future hackspace maintainers.
+
+> **Not yet ready for deployment on the real door.**
+>
+> The FSM and controller wrapper are under automated test, but the complete
+> Arduino build, hardware bench test and installation validation are still to be
+> completed.
+
+## Architecture
+
+The firmware is split into three layers:
+
+```text
+physical inputs / millis()
+          |
+          v
+DoorController
+- debounce
+- edge qualification
+- startup handling
+- timeout generation
+          |
+          v
+DoorFsm
+- states
+- transitions
+- faults
+- retry policy
+          |
+          v
+LockCommand
+          |
+          v
+Arduino GPIO / relays
+```
+
+The FSM contains door-control policy. The surrounding controller converts raw,
+debounced inputs and elapsed time into FSM events. The `.ino` file is intended
+to remain a thin Arduino hardware adapter.
+
+## FSM
+
+The state machine uses ETL `state_chart`.
+
+States:
 
 - `LockedClosed`
 - `Unlocking`
@@ -15,84 +68,232 @@ It deliberately does **not** implement fault transitions yet.
 - `LockRetryWait`
 - `UnlockedOpen`
 - `Disabled`
+- `Error`
 
-`Error` is reserved in the state enum for the next pass.
+There is deliberately no normal `LockedOpen` state. The bolt sensor is only
+considered reliable when the door is closed; door-open plus bolt-locked is
+treated as a contradictory physical/sensor condition.
 
-## Retry wait states
+### Motor commands
 
-Retry delays are explicit states:
+Motor output is derived from FSM state:
 
-    Locking
-      -> LockRetryWait
-      -> Locking
+```text
+Locking    -> Lock
+Unlocking  -> Unlock
+everything else -> None
+```
 
-and:
+The lock and unlock outputs are never intentionally asserted together.
 
-    Unlocking
-      -> UnlockRetryWait
-      -> Unlocking
+During a retry wait the command is `None`, giving an explicit one-second
+output-off period between attempts.
 
-`lockCommand()` therefore returns `None` during retry waits, making the required
-one-second output-off period structural rather than hidden inside a timer
-callback.
+## Faults
 
-## Deliberately omitted fault transitions
+Current fault codes are:
 
-The prototype does not yet handle:
+- `DoorOpenBoltLocked`
+- `LockFailed`
+- `UnlockFailed`
+- `DoorOpenTooLong`
+- `InvalidMode`
 
-- door open + bolt reports locked;
-- invalid operating-mode input;
-- `MAX_OPEN_TIMEOUT`;
-- lock timeout after all retries are exhausted;
-- unlock timeout after all retries are exhausted.
+Entering `Error` removes the lock/unlock motor command.
 
-Those events/conditions will be connected to the `Error` state in the fault
-implementation pass.
+Faults are not persisted across reset. A fault that is still physically present
+after reboot should be detected again from the current inputs.
 
-**Do not deploy this prototype to the real door.**
+Where the underlying fault clears and a valid physical state can be
+reconstructed, the FSM can return to normal operation without retaining the old
+fault.
 
-In particular, an exhausted final lock/unlock timeout currently has no matching
-ETL transition, so the FSM remains in the current state. That is intentional
-for this representation prototype and must be fixed before hardware use.
+## Operating modes
 
-## Mode and sensor snapshots
+The planned three-position maintained key switch has two signal inputs:
 
-`DoorFsm::process()` updates the observed mode / door / bolt values before
-dispatching the event to ETL. This lets guards reconstruct the correct state
-when leaving `Disabled`, and means future fault handling can inspect the latest
-physical inputs even when an event has no normal transition.
+```text
+D8  Standard
+D9  Open Night
+```
+
+with pull-ups and contacts that pull the selected input LOW.
+
+Logical encoding:
+
+```text
+D8  D9
+HIGH HIGH  Disabled
+LOW  HIGH  Standard
+HIGH LOW   Open Night
+LOW  LOW   Invalid / wiring fault
+```
+
+`Disabled` currently means no electronic lock or unlock commands. In
+particular, the exit button is currently ignored in Disabled mode; this remains
+a behaviour item to revisit if required.
+
+## Inputs
+
+Current Nano signal map:
+
+```text
+D2  lock-state sensor       active LOW
+D3  exit button             active LOW
+D4  door-closed reed        active LOW
+D7  BlueBoard RFID release  active LOW
+D8  Standard-mode contact   active LOW
+D9  Open-Night contact      active LOW
+```
+
+Debounce times:
+
+```text
+door          30 ms
+bolt          20 ms
+RFID          10 ms
+exit button   30 ms
+mode switch   50 ms
+```
+
+RFID and exit-button requests intentionally have different boot behaviour:
+
+- RFID already active at boot is ignored until it first becomes inactive;
+- an exit button already held at boot is honoured when electronic control is
+  enabled.
 
 ## Outputs
 
-Motor output is derived from state:
+Current relay mapping:
 
-    Locking   -> Lock
-    Unlocking -> Unlock
-    everything else -> None
+```text
+A3 -> RL4 -> Utopic puck T1 -> lock
+A2 -> RL3 -> Utopic puck T2 -> unlock
+A1 -> RL2 -> FAULT connector (currently unused)
+A0 -> RL1 -> BlueBoard "Button" contacts
+```
 
-The FSM does not directly call Arduino GPIO functions.
+Driving A3 or A2 HIGH energises the corresponding relay and pulls the Utopic
+puck input LOW.
 
-## Timer integration
+The Arduino hardware adapter uses break-before-make when changing lock command:
+both lock and unlock relays are released before asserting a new command.
 
-Timeout events are expected to be generated by the surrounding controller.
+## Timing
 
-The retry wait states require:
+Current parameters:
 
-    RetryDelayElapsed
+```text
+Standard auto-lock        5 s
+Open Night period         2 h
+door-open warning         30 s
+maximum door-open time    5 min
+lock attempt timeout      5 s
+unlock attempt timeout    5 s
+retry delay               1 s
+maximum lock retries      2
+maximum unlock retries    2
+```
 
-after the configured retry delay.
+Retry count means two retries **after** the initial attempt.
 
-A same-state RFID/exit request in `UnlockedClosed` emits:
+Timing code uses unsigned `uint32_t` subtraction so it remains correct across
+Arduino `millis()` rollover.
 
-    FsmEffect::RestartAutoLockTimer
+## Testing
 
-so the surrounding timer layer can restart the Standard auto-lock interval.
+Native host tests use Unity and run in GitHub Actions on Ubuntu.
 
-`OpenTimeout` similarly emits an `OpenTimeoutWarning` effect without changing
-state or driving the motor.
+The FSM test suite covers:
 
-## ETL API
+- normal transitions;
+- explicit retry-wait states;
+- manual lock/unlock;
+- mode transitions;
+- fault entry;
+- retry exhaustion;
+- fault recovery;
+- representative end-to-end sequences;
+- state/event safety checks.
 
-This prototype uses the run-time `etl::state_chart<TObject>` form. The ETL
-transition table therefore remains a normal static table and can later be
-compared directly with `docs/transitions.md`.
+The established FSM coverage is:
+
+```text
+lines       100%
+functions   100%
+branches    92.3%
+```
+
+The remaining uncovered branches are compiler-generated short-circuit paths
+that correspond to unreachable/redundant state combinations. CI therefore
+requires:
+
+```text
+lines       100%
+functions   100%
+branches    >= 88%
+```
+
+A separate controller/wrapper test suite exercises debounce, startup handling,
+RFID boot qualification, timeout generation, stale-timer cancellation,
+same-tick ordering and `millis()` rollover.
+
+CI is configured to build and run the FSM and controller test executables
+before collecting combined coverage.
+
+Third-party Unity/ETL code and test sources are excluded from project coverage.
+
+## Repository layout
+
+The intended source layout is:
+
+```text
+door-access-control/
+├── door_access_control.ino
+├── src/
+│   ├── controller_config.h
+│   ├── controller_types.h
+│   ├── debounce.h
+│   ├── door_controller.cpp
+│   ├── door_controller.h
+│   ├── door_fsm.cpp
+│   ├── door_fsm.h
+│   └── pin_defs.h
+├── test/
+│   ├── test_all.cpp
+│   ├── test_controller.cpp
+│   └── test_helpers.h
+├── docs/
+├── reference/
+├── hardware/
+├── mechanical/
+└── .github/
+    └── workflows/
+        └── tests.yml
+```
+
+There should be one canonical copy of each source file. The Arduino sketch
+includes the files in `src/`; source files are not duplicated in a separate
+Arduino directory.
+
+## Dependencies
+
+- Arduino Nano / ATmega328P
+- Embedded Template Library (ETL), using `etl::state_chart`
+- Unity test framework for native tests
+- LCOV/GCOV for CI coverage
+
+ETL is downloaded by the GitHub Actions test workflow. Unity is kept in the
+repository under `third_party/unity`.
+
+## Hardware still outside the firmware
+
+The following are deliberately not part of the current door-control firmware:
+
+- optional backup maglock;
+- independent watchdog / monitoring system;
+- email or remote fault notification;
+- persistent fault history.
+
+These should remain separate from the safety-critical FSM unless their
+interfaces are explicitly defined and tested.

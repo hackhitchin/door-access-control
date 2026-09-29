@@ -31,6 +31,7 @@ jobs:
             -Ithird_party/unity \
             -o build/unity.o
 
+          echo "Building FSM tests..."
           g++ \
             -std=c++17 \
             -Wall -Wextra \
@@ -41,11 +42,29 @@ jobs:
             -Isrc \
             -Ithird_party/unity \
             -Ithird_party/etl/include \
-            -o build/test_all
+            -o build/test_fsm
 
-      - name: Run tests
+          echo "Building controller tests..."
+          g++ \
+            -std=c++17 \
+            -Wall -Wextra \
+            --coverage \
+            src/door_fsm.cpp \
+            src/door_controller.cpp \
+            test/test_controller.cpp \
+            build/unity.o \
+            -Isrc \
+            -Ithird_party/unity \
+            -Ithird_party/etl/include \
+            -o build/test_controller
+
+      - name: Run FSM tests
         run: |
-          ./build/test_all
+          ./build/test_fsm
+
+      - name: Run controller tests
+        run: |
+          ./build/test_controller
 
       - name: Generate coverage report
         run: |
@@ -67,7 +86,7 @@ jobs:
           lcov \
             --summary build/coverage_filtered.info \
             --branch-coverage
-            
+
       - name: Show missing coverage
         run: |
           echo "===== UNCOVERED LINES ====="
@@ -126,6 +145,12 @@ jobs:
             | grep "lines" \
             | sed -E 's/.*: ([0-9.]+)%.*/\1/')
 
+          function_coverage=$(lcov \
+            --summary build/coverage_filtered.info \
+            --branch-coverage \
+            | grep "functions" \
+            | sed -E 's/.*: ([0-9.]+)%.*/\1/')
+
           branch_coverage=$(lcov \
             --summary build/coverage_filtered.info \
             --branch-coverage \
@@ -133,15 +158,22 @@ jobs:
             | sed -E 's/.*: ([0-9.]+)%.*/\1/')
 
           echo "Line coverage: $line_coverage%"
+          echo "Function coverage: $function_coverage%"
           echo "Branch coverage: $branch_coverage%"
 
           awk "BEGIN { exit !($line_coverage >= 100.0) }" || {
             echo "Line coverage is below 100%"
             exit 1
           }
-          # Branch coverage cannot reach 100% because several compiler-generated
-          # short-circuit branches represent physically unreachable sensor/mode
-          # combinations. We still require 100% line and function coverage.
+
+          awk "BEGIN { exit !($function_coverage >= 100.0) }" || {
+            echo "Function coverage is below 100%"
+            exit 1
+          }
+
+          # Some compiler-generated short-circuit branches represent
+          # unreachable physical/state combinations, so literal 100% branch
+          # coverage is not a useful requirement.
           awk "BEGIN { exit !($branch_coverage >= 88.0) }" || {
             echo "Branch coverage is below 88%"
             exit 1
