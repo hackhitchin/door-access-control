@@ -239,7 +239,7 @@ Output while in state:
 | Event | Guard | Action | Next state | Notes |
 |---|---|---|---|---|
 | `BOLT_LOCKED` | door still closed | release T1; clear lock retry count | `LOCKED_CLOSED` | Successful lock |
-| `LOCK_TIMEOUT` | retries remain | release T1; increment retry count; start retry-delay timer | `LOCK_RETRY_WAIT` | Maximum 2 retries after initial attempt |
+| `LOCK_TIMEOUT` | retries remain | release T1; increment retry count; start back-off timer | `LOCK_RETRY_WAIT` | Up to 5 retries after initial attempt |
 | `LOCK_TIMEOUT` | retries exhausted | release T1; record lock fault | `ERROR` | |
 | `DOOR_OPENED` | — | release T1 immediately | `UNLOCKED_OPEN` | Abort active lock command |
 | `RFID_RELEASE_REQUEST` | — | release T1; begin unlock | `UNLOCKING` | Release overrides locking |
@@ -382,7 +382,7 @@ Reason:
 Therefore no automatic unlock is performed solely because an open-door timeout
 expires.
 
-`MAX_OPEN_TIMEOUT` may still produce an error/fault indication.
+`MAX_OPEN_TIMEOUT` may still produce an error/fault indication: 5 minutes in Standard mode and 2 hours in Open Night.
 
 ---
 
@@ -560,7 +560,7 @@ The transition rules assume the following policy:
 - Open Night duration = 2 h
 - `lock_time` = 5 s
 - `unlock_time` = 5 s
-- maximum lock retries = 2
+- maximum lock retries = 5, with 1/10/100/1000/10000 s back-off
 - maximum unlock retries = 2
 - retry delay = 1 s
 

@@ -6,7 +6,7 @@ This document covers the code around the already-tested `DoorFsm`:
 - `src/door_controller.h`
 - `src/debounce.h`
 - `src/controller_config.h`
-- the very thin `door_access_control.ino` hardware adapter
+- the very thin `door-access-control.ino` hardware adapter
 
 The FSM transition tests remain separate.
 
@@ -18,7 +18,7 @@ src/door_controller.cpp
 test/test_controller.cpp
 ```
 
-`door_access_control.ino` should remain outside the normal host-side coverage target because it is the hardware-specific adapter using `digitalRead()`, `digitalWrite()`, `pinMode()` and `millis()`.
+`door-access-control.ino` should remain outside the normal host-side coverage target because it is the hardware-specific adapter using `digitalRead()`, `digitalWrite()`, `pinMode()` and `millis()`.
 
 ---
 
@@ -666,7 +666,7 @@ A fixed deterministic seed should be used if pseudo-random sequences are added.
 
 ---
 
-# Hardware adapter (`door_access_control.ino`) checks
+# Hardware adapter (`door-access-control.ino`) checks
 
 The `.ino` should remain extremely small, so most behaviour does not need host coverage.
 
@@ -701,7 +701,7 @@ PIN_UNLOCK_RELAY = HIGH
 `None` results in both LOW.
 
 ## HW-007
-Changing directly from Lock to Unlock, or Unlock to Lock, performs break-before-make.
+Changing directly from Lock to Unlock, or Unlock to Lock, performs break-before-make with at least 250 ms with both relay commands released.
 
 ## HW-008
 FAULT and BlueBoard Button relays remain inactive until deliberately implemented.

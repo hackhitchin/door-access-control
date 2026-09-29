@@ -29,9 +29,9 @@
 - [x] Define current Open Night timing: 2 h
 - [x] Define lock timeout: 5 s
 - [x] Define unlock timeout: 5 s
-- [x] Define maximum lock retries: 2 after the initial attempt
+- [x] Define lock retry policy: 5 retries after the initial attempt with 1/10/100/1000/10000 s back-off
 - [x] Define maximum unlock retries: 2 after the initial attempt
-- [x] Define open warning / maximum-open behaviour: 30 s warning, 5 min fault
+- [x] Define open warning / maximum-open behaviour: 30 s warning; 5 min Standard fault; 2 h Open Night fault
 - [x] Faults auto-clear when the underlying condition is gone and a valid state
       can be reconstructed
 - [x] Fault history does not survive controller reset
@@ -45,13 +45,13 @@
 - [x] T2 remains asserted for the complete `Unlocking` state
 - [x] Lock/unlock outputs are released during retry wait, Disabled and Error
 - [x] LOCK and UNLOCK cannot be intentionally asserted simultaneously
-- [x] Arduino output adapter uses break-before-make when reversing command
+- [x] Arduino output adapter uses 250 ms break-before-make when reversing command
 - [ ] Bench-test relay polarity and break-before-make behaviour on a real Nano /
       controller PCB
 
 ## Arduino / controller wrapper
 
-- [x] Add thin `door_access_control.ino` hardware adapter
+- [x] Add thin `door-access-control.ino` hardware adapter
 - [x] Add central `src/pin_defs.h`
 - [x] Add controller timing/debounce configuration
 - [x] Add input debounce layer
@@ -62,8 +62,8 @@
 - [x] Add controller/wrapper native test suite
 - [x] Confirm controller/wrapper tests pass in GitHub Actions
 - [x] Bring controller/wrapper code back to required coverage thresholds
-- [ ] Add Arduino Nano compile check in CI
-- [ ] Compile the complete firmware with the Arduino toolchain
+- [x] Add Arduino Nano compile check in CI
+- [x] Compile the complete firmware with the Arduino toolchain
 - [ ] Bench-test all physical inputs and relay outputs before door installation
 
 ## Documentation
@@ -73,8 +73,8 @@
 - [x] Add/update `docs/parameters.md`
 - [x] Add/update `docs/invariants.md`
 - [x] Add/update `docs/faults.md`
-- [ ] Add/update `docs/startup-recovery.md`
-- [ ] Add/update `docs/test-plan.md`
+- [x] Add/update `docs/startup-recovery.md`
+- [x] Add/update `docs/test-plan.md`
 - [x] Add controller/wrapper test plan to `docs/`
 - [ ] Store the current editable FSM source plus exported diagram
 - [x] Store lock and 433 MHz interface manuals under `reference/lock/`
@@ -100,9 +100,9 @@
 - [x] Add startup-state tests for the current controller implementation
 - [x] Add failure / retry / timeout sequence tests
 - [x] Add `millis()` wraparound tests for the controller layer
-- [ ] Consider pinning ETL to a specific release/commit instead of cloning HEAD
+- [x] Pin ETL used by native and Arduino CI builds to 20.48.1
 - [ ] Decide whether Unity should also be version-pinned/documented explicitly
-- [ ] Add a CI build that verifies the code fits and compiles for Arduino Nano
+- [x] Add a CI build that verifies the code fits and compiles for Arduino Nano
 - [ ] Add hardware-in-the-loop / bench test procedure before deployment
 
 ## Deployment / validation

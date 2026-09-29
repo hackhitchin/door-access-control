@@ -153,7 +153,7 @@ door          30 ms
 bolt          20 ms
 RFID          10 ms
 exit button   30 ms
-mode switch   50 ms
+mode switch   1000 ms
 ```
 
 RFID and exit-button requests intentionally have different boot behaviour:
@@ -177,7 +177,8 @@ Driving A3 or A2 HIGH energises the corresponding relay and pulls the Utopic
 puck input LOW.
 
 The Arduino hardware adapter uses break-before-make when changing lock command:
-both lock and unlock relays are released before asserting a new command.
+both lock and unlock relays are released and remain off for 250 ms before
+asserting the opposite command.
 
 ## Timing
 
@@ -187,15 +188,17 @@ Current parameters:
 Standard auto-lock        5 s
 Open Night period         2 h
 door-open warning         30 s
-maximum door-open time    5 min
+maximum door-open time    5 min Standard / 2 h Open Night
 lock attempt timeout      5 s
 unlock attempt timeout    5 s
-retry delay               1 s
-maximum lock retries      2
+lock retry delays         1 s, 10 s, 100 s, 1000 s, 10000 s
+maximum lock retries      5
+unlock retry delay        1 s
 maximum unlock retries    2
 ```
 
-Retry count means two retries **after** the initial attempt.
+Retry counts are retries **after** the initial attempt. Locking now uses five
+back-off retries; unlocking retains two 1 s retries.
 
 Timing code uses unsigned `uint32_t` subtraction so it remains correct across
 Arduino `millis()` rollover.
@@ -221,7 +224,7 @@ The established FSM coverage is:
 ```text
 lines       100%
 functions   100%
-branches    92.3%
+branches    88.9% (combined FSM + controller measurement before review fixes)
 ```
 
 The remaining uncovered branches are compiler-generated short-circuit paths
@@ -238,8 +241,9 @@ A separate controller/wrapper test suite exercises debounce, startup handling,
 RFID boot qualification, timeout generation, stale-timer cancellation,
 same-tick ordering and `millis()` rollover.
 
-CI is configured to build and run the FSM and controller test executables
-before collecting combined coverage.
+CI builds and runs the FSM and controller test executables before collecting
+combined coverage, and separately compiles the complete sketch for a classic
+Arduino Nano with pinned AVR-core and ETL versions.
 
 Third-party Unity/ETL code and test sources are excluded from project coverage.
 
@@ -249,7 +253,7 @@ The intended source layout is:
 
 ```text
 door-access-control/
-├── door_access_control.ino
+├── door-access-control.ino
 ├── src/
 │   ├── controller_config.h
 │   ├── controller_types.h
