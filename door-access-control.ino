@@ -108,39 +108,20 @@ DoorController& controller()
 void applyLockCommand(LockCommand command, uint32_t nowMs)
 {
     static LockCommand energised = LockCommand::None;
-    static LockCommand pending = LockCommand::None;
-    static bool reversalDeadtimeActive = false;
-    static uint32_t reversalStartedMs = 0;
+    static LockCommand lastReleased = LockCommand::None;
+    static bool releaseTimeValid = false;
+    static uint32_t lastReleasedMs = 0;
 
     if (command == LockCommand::None) {
         digitalWrite(PIN_LOCK_RELAY, LOW);
         digitalWrite(PIN_UNLOCK_RELAY, LOW);
-        energised = LockCommand::None;
-        pending = LockCommand::None;
-        reversalDeadtimeActive = false;
-        return;
-    }
 
-    if (reversalDeadtimeActive) {
-        // Outputs have remained off since reversalStartedMs. The requested
-        // direction may change during dead-time without restarting the timer.
-        pending = command;
-        if (static_cast<uint32_t>(nowMs - reversalStartedMs) <
-            RELAY_REVERSAL_DEADTIME_MS) {
-            return;
+        if (energised != LockCommand::None) {
+            lastReleased = energised;
+            lastReleasedMs = nowMs;
+            releaseTimeValid = true;
+            energised = LockCommand::None;
         }
-
-        digitalWrite(PIN_LOCK_RELAY, LOW);
-        digitalWrite(PIN_UNLOCK_RELAY, LOW);
-        if (pending == LockCommand::Lock) {
-            digitalWrite(PIN_LOCK_RELAY, HIGH);
-        } else {
-            digitalWrite(PIN_UNLOCK_RELAY, HIGH);
-        }
-
-        energised = pending;
-        pending = LockCommand::None;
-        reversalDeadtimeActive = false;
         return;
     }
 
@@ -149,14 +130,26 @@ void applyLockCommand(LockCommand command, uint32_t nowMs)
     }
 
     if (energised != LockCommand::None) {
-        // Real break-before-make: release the old mechanical relay and leave
-        // both HAI inputs open for 250 ms before energising the opposite one.
+        // Release the old mechanical relay first. The requested opposite
+        // direction is reconsidered on subsequent loop iterations.
         digitalWrite(PIN_LOCK_RELAY, LOW);
         digitalWrite(PIN_UNLOCK_RELAY, LOW);
+        lastReleased = energised;
+        lastReleasedMs = nowMs;
+        releaseTimeValid = true;
         energised = LockCommand::None;
-        pending = command;
-        reversalStartedMs = nowMs;
-        reversalDeadtimeActive = true;
+        return;
+    }
+
+    // Enforce dead time from the actual release instant, even if one or more
+    // explicit None commands occurred between opposite directions. Reasserting
+    // the same direction is safe and does not need the delay.
+    if (releaseTimeValid &&
+        command != lastReleased &&
+        static_cast<uint32_t>(nowMs - lastReleasedMs) <
+            RELAY_REVERSAL_DEADTIME_MS) {
+        digitalWrite(PIN_LOCK_RELAY, LOW);
+        digitalWrite(PIN_UNLOCK_RELAY, LOW);
         return;
     }
 
