@@ -170,6 +170,35 @@ void test_exit_held_at_boot_is_honoured(void)
     EXPECT_COMMAND(controller, LockCommand::Unlock);
 }
 
+void test_exit_held_at_boot_with_unlocked_bolt_completes_release_immediately(void)
+{
+    const ControllerInputs inputs =
+        makeInputs(OperatingMode::Standard, true, false, false, true);
+
+    DoorController controller(inputs, 0);
+
+    EXPECT_STATE(controller, DoorState::UnlockedClosed);
+    EXPECT_COMMAND(controller, LockCommand::None);
+    EXPECT_FAULT(controller, FaultCode::None);
+}
+
+void test_release_during_locking_with_already_unlocked_bolt_completes_immediately(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::Standard, true, false);
+
+    DoorController controller(inputs, 0);
+    EXPECT_STATE(controller, DoorState::Locking);
+
+    inputs.exitPressed = true;
+    controller.tick(100, inputs);
+    controller.tick(100 + DEBOUNCE_EXIT_MS, inputs);
+
+    EXPECT_STATE(controller, DoorState::UnlockedClosed);
+    EXPECT_COMMAND(controller, LockCommand::None);
+    EXPECT_FAULT(controller, FaultCode::None);
+}
+
 void test_exit_held_at_boot_is_ignored_in_disabled_mode(void)
 {
     const ControllerInputs inputs =
@@ -1003,6 +1032,8 @@ int main(void)
 
     RUN_TEST(test_rfid_active_at_boot_is_not_a_release_request);
     RUN_TEST(test_exit_held_at_boot_is_honoured);
+    RUN_TEST(test_exit_held_at_boot_with_unlocked_bolt_completes_release_immediately);
+    RUN_TEST(test_release_during_locking_with_already_unlocked_bolt_completes_immediately);
     RUN_TEST(test_exit_held_at_boot_is_ignored_in_disabled_mode);
 
     RUN_TEST(test_bool_debounce_ignores_short_pulse);

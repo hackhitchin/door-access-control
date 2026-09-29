@@ -62,6 +62,7 @@ private:
 
     void dispatch(DoorEvent event, uint32_t nowMs);
     void afterFsmEvent(DoorState previousState, uint32_t nowMs);
+    void reconcileTransientCompletion(uint32_t nowMs);
     void initialiseTimers(uint32_t nowMs);
 
     void processDoorInput(uint32_t nowMs, bool rawValue);

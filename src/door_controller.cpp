@@ -147,6 +147,17 @@ void DoorController::dispatch(DoorEvent event, uint32_t nowMs)
     const DoorState previousState = fsm_.state();
     fsm_.process(event);
     afterFsmEvent(previousState, nowMs);
+    reconcileTransientCompletion(nowMs);
+}
+
+void DoorController::reconcileTransientCompletion(uint32_t nowMs)
+{
+    // Completion is level-sensitive as well as edge-sensitive. A transition can
+    // enter Locking/Unlocking after the corresponding bolt edge has already
+    // happened, so do not wait for an edge that may never arrive.
+    if (fsm_.state() == DoorState::Unlocking && !bolt_.value()) {
+        dispatch(DoorEvent::BoltUnlocked, nowMs);
+    }
 }
 
 void DoorController::afterFsmEvent(DoorState previousState, uint32_t nowMs)
