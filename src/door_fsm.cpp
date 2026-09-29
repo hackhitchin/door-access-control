@@ -261,6 +261,11 @@ void DoorFsm::process(DoorEvent event)
 {
     effect_ = FsmEffect::None;
     observe(event);
+
+    if (state() == DoorState::Error) {
+        refreshObservableFault();
+    }
+
     chart_.process_event(id(event));
 }
 
@@ -302,6 +307,18 @@ void DoorFsm::observe(DoorEvent event)
 
     default:
         break;
+    }
+}
+
+void DoorFsm::refreshObservableFault()
+{
+    // Observable present-tense faults take priority over historical operation
+    // failures while Error is active. Historical LockFailed/UnlockFailed is
+    // retained when neither of these present conditions exists.
+    if (!doorClosed_ && boltLocked_) {
+        fault_ = FaultCode::DoorOpenBoltLocked;
+    } else if (mode_ == OperatingMode::Invalid) {
+        fault_ = FaultCode::InvalidMode;
     }
 }
 

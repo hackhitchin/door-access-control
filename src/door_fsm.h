@@ -39,6 +39,7 @@ private:
     static uint8_t id(DoorEvent event);
 
     void observe(DoorEvent event);
+    void refreshObservableFault();
 
     // Guards. ETL state_chart requires non-const guard member functions.
     bool modeAllowsElectronicControl();

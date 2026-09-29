@@ -755,6 +755,40 @@ void test_error_open_night_open_recovers_when_bolt_unlocked(void)
     EXPECT_STATE(fsm, DoorState::UnlockedOpen);
     EXPECT_FAULT(fsm, FaultCode::None);
 }
+void test_error_fault_updates_when_physical_contradiction_appears(void)
+{
+    DoorFsm fsm(DoorState::Unlocking, OperatingMode::Standard, true, true);
+    fsm.start();
+
+    fsm.process(DoorEvent::UnlockTimeout);
+    fsm.process(DoorEvent::RetryDelayElapsed);
+    fsm.process(DoorEvent::UnlockTimeout);
+    fsm.process(DoorEvent::RetryDelayElapsed);
+    fsm.process(DoorEvent::UnlockTimeout);
+
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::UnlockFailed);
+
+    fsm.process(DoorEvent::DoorOpened);
+
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::DoorOpenBoltLocked);
+}
+
+void test_invalid_mode_fault_is_replaced_by_physical_contradiction(void)
+{
+    DoorFsm fsm(DoorState::LockedClosed, OperatingMode::Standard, true, true);
+    fsm.start();
+
+    fsm.process(DoorEvent::ModeInvalid);
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::InvalidMode);
+
+    fsm.process(DoorEvent::DoorOpened);
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::DoorOpenBoltLocked);
+}
+
 void test_invalid_mode_error_does_not_recover_on_door_closed(void)
 {
     DoorFsm fsm(
@@ -862,6 +896,8 @@ int main(void)
     RUN_TEST(test_error_open_night_unlocked_closed_skips_locked_guard);
     RUN_TEST(test_error_standard_open_recovers_when_bolt_unlocked);
     RUN_TEST(test_error_open_night_open_recovers_when_bolt_unlocked);
+    RUN_TEST(test_error_fault_updates_when_physical_contradiction_appears);
+    RUN_TEST(test_invalid_mode_fault_is_replaced_by_physical_contradiction);
     RUN_TEST(test_invalid_mode_error_does_not_recover_on_door_closed);
     RUN_TEST(test_invalid_mode_error_does_not_recover_on_bolt_unlocked);
     return UNITY_END();
