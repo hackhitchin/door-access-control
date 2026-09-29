@@ -27,6 +27,10 @@ public:
     LockCommand lockCommand() const { return fsm_.lockCommand(); }
     FaultCode fault() const { return fsm_.fault(); }
     FsmEffect effect() const { return fsm_.effect(); }
+    bool faultIndicated() const
+    {
+        return fsm_.fault() != FaultCode::None || fsm_.lockRetries() >= 2U;
+    }
 
     bool doorClosed() const { return door_.value(); }
     bool boltLocked() const { return bolt_.value(); }
@@ -62,6 +66,7 @@ private:
 
     void dispatch(DoorEvent event, uint32_t nowMs);
     void afterFsmEvent(DoorState previousState, uint32_t nowMs);
+    void reconcileTransientCompletion(uint32_t nowMs);
     void initialiseTimers(uint32_t nowMs);
 
     void processDoorInput(uint32_t nowMs, bool rawValue);
@@ -72,6 +77,8 @@ private:
     void processTimers(uint32_t nowMs);
 
     uint32_t autoLockDurationForMode() const;
+    uint32_t maxOpenDurationForMode() const;
+    uint32_t lockRetryDelayMs(uint8_t retryNumber) const;
 
     DoorFsm fsm_;
 

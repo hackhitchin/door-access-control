@@ -4,6 +4,10 @@
 #include "src/door_fsm.h"
 #include "src/door_controller.h"
 
+#ifndef DOOR_SERIAL_DIAGNOSTICS
+#define DOOR_SERIAL_DIAGNOSTICS 0
+#endif
+
 namespace
 {
 
@@ -41,6 +45,71 @@ ControllerInputs readInputs()
     return inputs;
 }
 
+bool sameInputs(const ControllerInputs& a, const ControllerInputs& b)
+{
+    return a.doorClosed == b.doorClosed &&
+           a.boltLocked == b.boltLocked &&
+           a.rfidActive == b.rfidActive &&
+           a.exitPressed == b.exitPressed &&
+           a.mode == b.mode;
+}
+
+ControllerInputs readStableStartupInputs()
+{
+    ControllerInputs candidate = readInputs();
+    const uint32_t qualificationStartedMs = millis();
+    uint32_t stableSinceMs = qualificationStartedMs;
+
+    while (static_cast<uint32_t>(millis() - stableSinceMs) <
+               STARTUP_INPUT_STABLE_MS &&
+           static_cast<uint32_t>(millis() - qualificationStartedMs) <
+               STARTUP_INPUT_TIMEOUT_MS) {
+        const ControllerInputs current = readInputs();
+        if (!sameInputs(current, candidate)) {
+            candidate = current;
+            stableSinceMs = millis();
+        }
+        delay(1);
+    }
+
+    // A permanently chattering input must not prevent the controller booting.
+    // The normal debouncers and fault handling take over from this sample.
+    return candidate;
+}
+
+#if DOOR_SERIAL_DIAGNOSTICS
+void printDiagnostics(const DoorController& c, uint32_t nowMs)
+{
+    static uint32_t lastPrintMs = 0;
+    if (static_cast<uint32_t>(nowMs - lastPrintMs) < 1000UL) {
+        return;
+    }
+    lastPrintMs = nowMs;
+
+    // Numeric enum values keep the diagnostics small; see controller_types.h.
+    Serial.print(F("t="));
+    Serial.print(nowMs);
+    Serial.print(F(" state="));
+    Serial.print(static_cast<uint8_t>(c.state()));
+    Serial.print(F(" mode="));
+    Serial.print(static_cast<uint8_t>(c.mode()));
+    Serial.print(F(" fault="));
+    Serial.print(static_cast<uint8_t>(c.fault()));
+    Serial.print(F(" indicated="));
+    Serial.print(c.faultIndicated() ? 1 : 0);
+    Serial.print(F(" cmd="));
+    Serial.print(static_cast<uint8_t>(c.lockCommand()));
+    Serial.print(F(" door="));
+    Serial.print(c.doorClosed() ? 1 : 0);
+    Serial.print(F(" bolt="));
+    Serial.print(c.boltLocked() ? 1 : 0);
+    Serial.print(F(" rfid="));
+    Serial.print(c.rfidActive() ? 1 : 0);
+    Serial.print(F(" exit="));
+    Serial.println(c.exitPressed() ? 1 : 0);
+}
+#endif
+
 void configurePins()
 {
     pinMode(PIN_LOCK_STATE, INPUT_PULLUP);
@@ -68,39 +137,80 @@ DoorController& controller()
 {
     // First called from setup(), after pin configuration.
     // Function-local static avoids heap allocation.
-    static DoorController instance(readInputs(), millis());
+    static const ControllerInputs stableInputs = readStableStartupInputs();
+    static DoorController instance(stableInputs, millis());
     return instance;
 }
 
-void applyLockCommand(LockCommand command)
+void applyLockCommand(LockCommand command, uint32_t nowMs)
 {
-    static LockCommand applied = LockCommand::None;
+    static LockCommand energised = LockCommand::None;
+    static LockCommand lastReleased = LockCommand::None;
+    static bool releaseTimeValid = false;
+    static uint32_t lastReleasedMs = 0;
 
-    if (command == applied) {
+    if (command == LockCommand::None) {
+        digitalWrite(PIN_LOCK_RELAY, LOW);
+        digitalWrite(PIN_UNLOCK_RELAY, LOW);
+
+        if (energised != LockCommand::None) {
+            lastReleased = energised;
+            lastReleasedMs = nowMs;
+            releaseTimeValid = true;
+            energised = LockCommand::None;
+        }
         return;
     }
 
-    // Break-before-make prevents any overlap of T1 and T2.
-    digitalWrite(PIN_LOCK_RELAY, LOW);
-    digitalWrite(PIN_UNLOCK_RELAY, LOW);
+    if (command == energised) {
+        return;
+    }
+
+    if (energised != LockCommand::None) {
+        // Release the old mechanical relay first. The requested opposite
+        // direction is reconsidered on subsequent loop iterations.
+        digitalWrite(PIN_LOCK_RELAY, LOW);
+        digitalWrite(PIN_UNLOCK_RELAY, LOW);
+        lastReleased = energised;
+        lastReleasedMs = nowMs;
+        releaseTimeValid = true;
+        energised = LockCommand::None;
+        return;
+    }
+
+    // Enforce dead time from the actual release instant, even if one or more
+    // explicit None commands occurred between opposite directions. Reasserting
+    // the same direction is safe and does not need the delay.
+    if (releaseTimeValid &&
+        command != lastReleased &&
+        static_cast<uint32_t>(nowMs - lastReleasedMs) <
+            RELAY_REVERSAL_DEADTIME_MS) {
+        digitalWrite(PIN_LOCK_RELAY, LOW);
+        digitalWrite(PIN_UNLOCK_RELAY, LOW);
+        return;
+    }
 
     if (command == LockCommand::Lock) {
         digitalWrite(PIN_LOCK_RELAY, HIGH);
-    } else if (command == LockCommand::Unlock) {
+    } else {
         digitalWrite(PIN_UNLOCK_RELAY, HIGH);
     }
-
-    applied = command;
+    energised = command;
 }
 
 } // namespace
 
 void setup()
 {
+#if DOOR_SERIAL_DIAGNOSTICS
+    Serial.begin(115200);
+#endif
+
     configurePins();
 
     DoorController& c = controller();
-    applyLockCommand(c.lockCommand());
+    applyLockCommand(c.lockCommand(), millis());
+    digitalWrite(PIN_FAULT_RELAY, c.faultIndicated() ? HIGH : LOW);
 }
 
 void loop()
@@ -110,5 +220,10 @@ void loop()
     DoorController& c = controller();
     c.tick(nowMs, readInputs());
 
-    applyLockCommand(c.lockCommand());
+    applyLockCommand(c.lockCommand(), nowMs);
+    digitalWrite(PIN_FAULT_RELAY, c.faultIndicated() ? HIGH : LOW);
+
+#if DOOR_SERIAL_DIAGNOSTICS
+    printDiagnostics(c, nowMs);
+#endif
 }

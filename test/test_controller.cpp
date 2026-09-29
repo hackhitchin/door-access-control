@@ -119,6 +119,35 @@ void test_startup_disabled_does_not_drive_motor(void)
     EXPECT_COMMAND(controller, LockCommand::None);
 }
 
+void test_startup_disabled_open_and_bolt_locked_stays_disabled(void)
+{
+    const ControllerInputs inputs =
+        makeInputs(OperatingMode::Disabled, false, true);
+
+    DoorController controller(inputs, 0);
+
+    EXPECT_STATE(controller, DoorState::Disabled);
+    EXPECT_COMMAND(controller, LockCommand::None);
+    EXPECT_FAULT(controller, FaultCode::None);
+}
+
+void test_disabled_contradiction_faults_when_standard_is_selected(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::Disabled, false, true);
+
+    DoorController controller(inputs, 0);
+    EXPECT_STATE(controller, DoorState::Disabled);
+
+    inputs.mode = OperatingMode::Standard;
+    controller.tick(100, inputs);
+    controller.tick(100 + DEBOUNCE_MODE_MS, inputs);
+
+    EXPECT_STATE(controller, DoorState::Error);
+    EXPECT_FAULT(controller, FaultCode::DoorOpenBoltLocked);
+    EXPECT_COMMAND(controller, LockCommand::None);
+}
+
 void test_startup_open_and_bolt_locked_enters_sensor_fault(void)
 {
     const ControllerInputs inputs =
@@ -168,6 +197,65 @@ void test_exit_held_at_boot_is_honoured(void)
 
     EXPECT_STATE(controller, DoorState::Unlocking);
     EXPECT_COMMAND(controller, LockCommand::Unlock);
+}
+
+void test_exit_held_at_boot_with_unlocked_bolt_completes_release_immediately(void)
+{
+    const ControllerInputs inputs =
+        makeInputs(OperatingMode::Standard, true, false, false, true);
+
+    DoorController controller(inputs, 0);
+
+    EXPECT_STATE(controller, DoorState::UnlockedClosed);
+    EXPECT_COMMAND(controller, LockCommand::None);
+    EXPECT_FAULT(controller, FaultCode::None);
+}
+
+void test_release_during_locking_waits_for_lock_completion_then_unlocks(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::Standard, true, false);
+
+    DoorController controller(inputs, 0);
+    EXPECT_STATE(controller, DoorState::Locking);
+
+    inputs.exitPressed = true;
+    controller.tick(100, inputs);
+    controller.tick(100 + DEBOUNCE_EXIT_MS, inputs);
+
+    // The release is queued while the previous lock command may still be in
+    // flight. It is not acknowledged merely because the bolt still reads open.
+    EXPECT_STATE(controller, DoorState::Locking);
+    EXPECT_COMMAND(controller, LockCommand::Lock);
+
+    inputs.boltLocked = true;
+    controller.tick(500, inputs);
+    controller.tick(500 + DEBOUNCE_BOLT_MS, inputs);
+
+    EXPECT_STATE(controller, DoorState::Unlocking);
+    EXPECT_COMMAND(controller, LockCommand::Unlock);
+    EXPECT_FAULT(controller, FaultCode::None);
+}
+
+void test_release_during_locking_timeout_completes_if_bolt_still_unlocked(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::Standard, true, false);
+
+    DoorController controller(inputs, 0);
+
+    inputs.exitPressed = true;
+    controller.tick(100, inputs);
+    controller.tick(100 + DEBOUNCE_EXIT_MS, inputs);
+    EXPECT_STATE(controller, DoorState::Locking);
+
+    controller.tick(LOCK_TIME_MS, inputs);
+
+    // The lock never confirmed. The pending release takes precedence over a
+    // retry, then level reconciliation sees that the bolt is already unlocked.
+    EXPECT_STATE(controller, DoorState::UnlockedClosed);
+    EXPECT_COMMAND(controller, LockCommand::None);
+    EXPECT_FAULT(controller, FaultCode::None);
 }
 
 void test_exit_held_at_boot_is_ignored_in_disabled_mode(void)
@@ -690,6 +778,26 @@ void test_max_open_timeout_enters_fault(void)
     EXPECT_COMMAND(controller, LockCommand::None);
 }
 
+void test_open_night_max_open_timeout_is_two_hours(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::OpenNight, false, false);
+
+    DoorController controller(inputs, 0);
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    controller.tick(MAX_OPEN_TIMEOUT_MS, inputs);
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+    EXPECT_FAULT(controller, FaultCode::None);
+
+    controller.tick(OPEN_NIGHT_MAX_OPEN_TIMEOUT_MS - 1UL, inputs);
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    controller.tick(OPEN_NIGHT_MAX_OPEN_TIMEOUT_MS, inputs);
+    EXPECT_STATE(controller, DoorState::Error);
+    EXPECT_FAULT(controller, FaultCode::DoorOpenTooLong);
+}
+
 void test_closing_door_cancels_old_open_timers(void)
 {
     ControllerInputs inputs =
@@ -886,31 +994,39 @@ void test_rfid_request_wins_if_it_debounces_on_auto_lock_tick(void)
 // Full wrapper-timed retry sequences.
 // -----------------------------------------------------------------------------
 
-void test_lock_attempt_plus_two_retries_ends_in_lock_failed(void)
+void test_lock_attempt_uses_backoff_then_ends_in_lock_failed(void)
 {
     ControllerInputs inputs =
         makeInputs(OperatingMode::Standard, true, false);
 
     DoorController controller(inputs, 0);
 
-    controller.tick(5000, inputs);
-    EXPECT_STATE(controller, DoorState::LockRetryWait);
-    EXPECT_COMMAND(controller, LockCommand::None);
+    const uint32_t retryStarts[] = {
+        6000UL, 21000UL, 126000UL, 1131000UL, 11136000UL
+    };
+    const uint32_t retryWaitStarts[] = {
+        5000UL, 11000UL, 26000UL, 131000UL, 1136000UL
+    };
+    const uint32_t retryDelays[] = {
+        LOCK_RETRY_1_DELAY_MS, LOCK_RETRY_2_DELAY_MS,
+        LOCK_RETRY_3_DELAY_MS, LOCK_RETRY_4_DELAY_MS,
+        LOCK_RETRY_5_DELAY_MS
+    };
 
-    controller.tick(6000, inputs);
-    EXPECT_STATE(controller, DoorState::Locking);
-    EXPECT_COMMAND(controller, LockCommand::Lock);
+    for (uint8_t i = 0; i < MAX_LOCK_RETRIES; ++i) {
+        controller.tick(retryWaitStarts[i], inputs);
+        EXPECT_STATE(controller, DoorState::LockRetryWait);
+        EXPECT_COMMAND(controller, LockCommand::None);
 
-    controller.tick(11000, inputs);
-    EXPECT_STATE(controller, DoorState::LockRetryWait);
-    EXPECT_COMMAND(controller, LockCommand::None);
+        controller.tick(retryWaitStarts[i] + retryDelays[i] - 1UL, inputs);
+        EXPECT_STATE(controller, DoorState::LockRetryWait);
 
-    controller.tick(12000, inputs);
-    EXPECT_STATE(controller, DoorState::Locking);
-    EXPECT_COMMAND(controller, LockCommand::Lock);
+        controller.tick(retryStarts[i], inputs);
+        EXPECT_STATE(controller, DoorState::Locking);
+        EXPECT_COMMAND(controller, LockCommand::Lock);
+    }
 
-    controller.tick(17000, inputs);
-
+    controller.tick(11141000UL, inputs);
     EXPECT_STATE(controller, DoorState::Error);
     EXPECT_FAULT(controller, FaultCode::LockFailed);
     EXPECT_COMMAND(controller, LockCommand::None);
@@ -937,6 +1053,37 @@ void test_success_during_lock_retry_wait_prevents_another_attempt(void)
 
     EXPECT_STATE(controller, DoorState::LockedClosed);
     EXPECT_FAULT(controller, FaultCode::None);
+}
+
+void test_fault_indicator_activates_after_second_failed_lock_attempt(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::Standard, true, false);
+
+    DoorController controller(inputs, 0);
+    TEST_ASSERT_FALSE(controller.faultIndicated());
+
+    // Initial attempt fails: retry count becomes one, but no degraded warning yet.
+    controller.tick(LOCK_TIME_MS, inputs);
+    EXPECT_STATE(controller, DoorState::LockRetryWait);
+    TEST_ASSERT_FALSE(controller.faultIndicated());
+
+    // Retry 1 starts after 1 s and then also fails. This is the second failed
+    // lock attempt overall, so indicate the degraded/unsecured condition while
+    // continuing the longer back-off sequence.
+    controller.tick(LOCK_TIME_MS + LOCK_RETRY_1_DELAY_MS, inputs);
+    EXPECT_STATE(controller, DoorState::Locking);
+
+    controller.tick(LOCK_TIME_MS + LOCK_RETRY_1_DELAY_MS + LOCK_TIME_MS, inputs);
+    EXPECT_STATE(controller, DoorState::LockRetryWait);
+    TEST_ASSERT_TRUE(controller.faultIndicated());
+
+    // A late physical success during the wait clears retries and indication.
+    inputs.boltLocked = true;
+    controller.tick(11500UL, inputs);
+    controller.tick(11500UL + DEBOUNCE_BOLT_MS, inputs);
+    EXPECT_STATE(controller, DoorState::LockedClosed);
+    TEST_ASSERT_FALSE(controller.faultIndicated());
 }
 
 // -----------------------------------------------------------------------------
@@ -972,6 +1119,65 @@ void test_representative_sequence_always_has_state_appropriate_output(void)
     expectOutputMatchesState(controller);
 }
 
+void test_mode_centre_off_shorter_than_settle_time_is_not_published(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::OpenNight, true, false);
+
+    DoorController controller(inputs, 0);
+    EXPECT_STATE(controller, DoorState::UnlockedClosed);
+
+    inputs.mode = OperatingMode::Disabled;
+    controller.tick(100, inputs);
+    controller.tick(100 + DEBOUNCE_MODE_MS - 1, inputs);
+    EXPECT_STATE(controller, DoorState::UnlockedClosed);
+
+    // Move on to Standard before Disabled has been stable for a full second.
+    inputs.mode = OperatingMode::Standard;
+    controller.tick(100 + DEBOUNCE_MODE_MS - 1, inputs);
+    controller.tick(100 + 2 * DEBOUNCE_MODE_MS - 1, inputs);
+
+    EXPECT_STATE(controller, DoorState::UnlockedClosed);
+    EXPECT_COMMAND(controller, LockCommand::None);
+}
+
+void test_mode_change_while_open_restarts_max_open_timer_for_new_mode(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::Standard, false, false);
+
+    DoorController controller(inputs, 0);
+
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    // Change to Open Night.
+    inputs.mode = OperatingMode::OpenNight;
+    controller.tick(1000, inputs);
+    controller.tick(1000 + DEBOUNCE_MODE_MS, inputs);
+
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    // Standard's old 5-minute deadline must no longer fault.
+    controller.tick(MAX_OPEN_TIMEOUT_MS + 1, inputs);
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    // But Open Night's two-hour deadline should.
+    const uint32_t modeChangeTime = 1000 + DEBOUNCE_MODE_MS;
+
+    controller.tick(
+        modeChangeTime + OPEN_NIGHT_MAX_OPEN_TIMEOUT_MS - 1,
+        inputs
+    );
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    controller.tick(
+        modeChangeTime + OPEN_NIGHT_MAX_OPEN_TIMEOUT_MS,
+        inputs
+    );
+    EXPECT_STATE(controller, DoorState::Error);
+    EXPECT_FAULT(controller, FaultCode::DoorOpenTooLong);
+}
+
 void test_stable_standard_mode_change_is_forwarded(void)
 {
     ControllerInputs inputs =
@@ -998,11 +1204,16 @@ int main(void)
     RUN_TEST(test_startup_open_night_closed_locked_starts_unlocking);
     RUN_TEST(test_startup_open_unlocked_does_not_drive_motor);
     RUN_TEST(test_startup_disabled_does_not_drive_motor);
+    RUN_TEST(test_startup_disabled_open_and_bolt_locked_stays_disabled);
+    RUN_TEST(test_disabled_contradiction_faults_when_standard_is_selected);
     RUN_TEST(test_startup_open_and_bolt_locked_enters_sensor_fault);
     RUN_TEST(test_startup_invalid_mode_enters_mode_fault);
 
     RUN_TEST(test_rfid_active_at_boot_is_not_a_release_request);
     RUN_TEST(test_exit_held_at_boot_is_honoured);
+    RUN_TEST(test_exit_held_at_boot_with_unlocked_bolt_completes_release_immediately);
+    RUN_TEST(test_release_during_locking_waits_for_lock_completion_then_unlocks);
+    RUN_TEST(test_release_during_locking_timeout_completes_if_bolt_still_unlocked);
     RUN_TEST(test_exit_held_at_boot_is_ignored_in_disabled_mode);
 
     RUN_TEST(test_bool_debounce_ignores_short_pulse);
@@ -1038,6 +1249,7 @@ int main(void)
 
     RUN_TEST(test_open_warning_fires_without_faulting);
     RUN_TEST(test_max_open_timeout_enters_fault);
+    RUN_TEST(test_open_night_max_open_timeout_is_two_hours);
     RUN_TEST(test_closing_door_cancels_old_open_timers);
 
     RUN_TEST(test_successful_lock_cancels_old_lock_timeout);
@@ -1051,10 +1263,13 @@ int main(void)
     RUN_TEST(test_disabled_mode_wins_if_it_debounces_on_lock_timeout_tick);
     RUN_TEST(test_rfid_request_wins_if_it_debounces_on_auto_lock_tick);
 
-    RUN_TEST(test_lock_attempt_plus_two_retries_ends_in_lock_failed);
+    RUN_TEST(test_lock_attempt_uses_backoff_then_ends_in_lock_failed);
     RUN_TEST(test_success_during_lock_retry_wait_prevents_another_attempt);
+    RUN_TEST(test_fault_indicator_activates_after_second_failed_lock_attempt);
 
     RUN_TEST(test_representative_sequence_always_has_state_appropriate_output);
+    RUN_TEST(test_mode_centre_off_shorter_than_settle_time_is_not_published);
+    RUN_TEST(test_mode_change_while_open_restarts_max_open_timer_for_new_mode);
     RUN_TEST(test_stable_standard_mode_change_is_forwarded);
 
     return UNITY_END();

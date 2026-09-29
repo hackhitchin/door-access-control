@@ -14,7 +14,7 @@ jobs:
 
       - name: Download ETL
         run: |
-          git clone --depth 1 https://github.com/ETLCPP/etl.git third_party/etl
+          git clone --depth 1 --branch 20.48.1 https://github.com/ETLCPP/etl.git third_party/etl
 
       - name: Install coverage tools
         run: |
@@ -33,7 +33,7 @@ jobs:
 
           echo "Building FSM tests..."
           g++ \
-            -std=c++17 \
+            -std=c++11 \
             -Wall -Wextra \
             --coverage \
             src/door_fsm.cpp \
@@ -46,7 +46,7 @@ jobs:
 
           echo "Building controller tests..."
           g++ \
-            -std=c++17 \
+            -std=c++11 \
             -Wall -Wextra \
             --coverage \
             src/door_fsm.cpp \
@@ -178,3 +178,24 @@ jobs:
             echo "Branch coverage is below 88%"
             exit 1
           }
+  arduino-compile:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install pinned Nano core and ETL library
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr@1.8.8
+          arduino-cli lib install "Embedded Template Library ETL@20.48.1"
+
+      - name: Compile for classic Arduino Nano
+        run: |
+          arduino-cli compile \
+            --fqbn arduino:avr:nano:cpu=atmega328 \
+            .

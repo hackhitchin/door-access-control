@@ -193,11 +193,43 @@ void test_locking_door_open_aborts(void)
     EXPECT_COMMAND(fsm, LockCommand::None);
 }
 
-void test_locking_rfid_reverses_to_unlock(void)
+void test_locking_rfid_queues_release_until_lock_completes(void)
 {
     DoorFsm fsm(DoorState::Locking, OperatingMode::Standard, true, false);
     fsm.start();
+
     fsm.process(DoorEvent::RfidReleaseRequest);
+    EXPECT_STATE(fsm, DoorState::Locking);
+    EXPECT_COMMAND(fsm, LockCommand::Lock);
+
+    fsm.process(DoorEvent::BoltLocked);
+    EXPECT_STATE(fsm, DoorState::Unlocking);
+    EXPECT_COMMAND(fsm, LockCommand::Unlock);
+}
+
+void test_locking_pending_release_unlocks_on_timeout(void)
+{
+    DoorFsm fsm(DoorState::Locking, OperatingMode::Standard, true, false);
+    fsm.start();
+
+    fsm.process(DoorEvent::ExitButtonRequest);
+    fsm.process(DoorEvent::LockTimeout);
+
+    EXPECT_STATE(fsm, DoorState::Unlocking);
+    EXPECT_COMMAND(fsm, LockCommand::Unlock);
+    TEST_ASSERT_EQUAL_UINT8(0, fsm.lockRetries());
+}
+
+void test_lock_retry_wait_pending_release_unlocks_when_wait_finishes(void)
+{
+    DoorFsm fsm(DoorState::LockRetryWait, OperatingMode::Standard, true, false);
+    fsm.start();
+
+    fsm.process(DoorEvent::RfidReleaseRequest);
+    EXPECT_STATE(fsm, DoorState::LockRetryWait);
+    EXPECT_COMMAND(fsm, LockCommand::None);
+
+    fsm.process(DoorEvent::RetryDelayElapsed);
     EXPECT_STATE(fsm, DoorState::Unlocking);
     EXPECT_COMMAND(fsm, LockCommand::Unlock);
 }
@@ -317,6 +349,8 @@ void test_max_open_timeout_faults(void)
     EXPECT_FAULT(fsm, FaultCode::DoorOpenTooLong);
 }
 
+
+
 void test_invalid_mode_faults_from_locked_closed(void)
 {
     DoorFsm fsm(DoorState::LockedClosed, OperatingMode::Standard, true, true);
@@ -338,30 +372,25 @@ void test_invalid_mode_faults_from_locking_and_removes_output(void)
     EXPECT_COMMAND(fsm, LockCommand::None);
 }
 
-void test_lock_failure_after_two_retries(void)
+void test_lock_failure_after_five_backoff_retries(void)
 {
     DoorFsm fsm(DoorState::Locking, OperatingMode::Standard, true, false);
     fsm.start();
 
-    fsm.process(DoorEvent::LockTimeout);
-    EXPECT_STATE(fsm, DoorState::LockRetryWait);
-    TEST_ASSERT_EQUAL_UINT8(1, fsm.lockRetries());
+    for (uint8_t retry = 1; retry <= MAX_LOCK_RETRIES; ++retry) {
+        fsm.process(DoorEvent::LockTimeout);
+        EXPECT_STATE(fsm, DoorState::LockRetryWait);
+        TEST_ASSERT_EQUAL_UINT8(retry, fsm.lockRetries());
 
-    fsm.process(DoorEvent::RetryDelayElapsed);
-    EXPECT_STATE(fsm, DoorState::Locking);
-
-    fsm.process(DoorEvent::LockTimeout);
-    EXPECT_STATE(fsm, DoorState::LockRetryWait);
-    TEST_ASSERT_EQUAL_UINT8(2, fsm.lockRetries());
-
-    fsm.process(DoorEvent::RetryDelayElapsed);
-    EXPECT_STATE(fsm, DoorState::Locking);
+        fsm.process(DoorEvent::RetryDelayElapsed);
+        EXPECT_STATE(fsm, DoorState::Locking);
+    }
 
     fsm.process(DoorEvent::LockTimeout);
     EXPECT_STATE(fsm, DoorState::Error);
     EXPECT_FAULT(fsm, FaultCode::LockFailed);
     EXPECT_COMMAND(fsm, LockCommand::None);
-    TEST_ASSERT_EQUAL_UINT8(2, fsm.lockRetries());
+    TEST_ASSERT_EQUAL_UINT8(MAX_LOCK_RETRIES, fsm.lockRetries());
 }
 
 void test_unlock_failure_after_two_retries(void)
@@ -446,14 +475,25 @@ void test_lock_failed_clears_when_bolt_becomes_locked(void)
 {
     DoorFsm fsm(DoorState::Locking, OperatingMode::Standard, true, false);
     fsm.start();
-    fsm.process(DoorEvent::LockTimeout);
-    fsm.process(DoorEvent::RetryDelayElapsed);
-    fsm.process(DoorEvent::LockTimeout);
-    fsm.process(DoorEvent::RetryDelayElapsed);
-    fsm.process(DoorEvent::LockTimeout);
-    EXPECT_STATE(fsm, DoorState::Error);
 
+    // Exhaust all configured retries.
+    for (uint8_t retry = 0; retry < MAX_LOCK_RETRIES; ++retry) {
+        fsm.process(DoorEvent::LockTimeout);
+        EXPECT_STATE(fsm, DoorState::LockRetryWait);
+
+        fsm.process(DoorEvent::RetryDelayElapsed);
+        EXPECT_STATE(fsm, DoorState::Locking);
+    }
+
+    // One final failed attempt after all retries are consumed.
+    fsm.process(DoorEvent::LockTimeout);
+
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::LockFailed);
+
+    // A subsequently observed successful physical lock clears the fault.
     fsm.process(DoorEvent::BoltLocked);
+
     EXPECT_STATE(fsm, DoorState::LockedClosed);
     EXPECT_FAULT(fsm, FaultCode::None);
     TEST_ASSERT_EQUAL_UINT8(0, fsm.lockRetries());
@@ -760,6 +800,40 @@ void test_error_open_night_open_recovers_when_bolt_unlocked(void)
     EXPECT_STATE(fsm, DoorState::UnlockedOpen);
     EXPECT_FAULT(fsm, FaultCode::None);
 }
+void test_error_fault_updates_when_physical_contradiction_appears(void)
+{
+    DoorFsm fsm(DoorState::Unlocking, OperatingMode::Standard, true, true);
+    fsm.start();
+
+    fsm.process(DoorEvent::UnlockTimeout);
+    fsm.process(DoorEvent::RetryDelayElapsed);
+    fsm.process(DoorEvent::UnlockTimeout);
+    fsm.process(DoorEvent::RetryDelayElapsed);
+    fsm.process(DoorEvent::UnlockTimeout);
+
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::UnlockFailed);
+
+    fsm.process(DoorEvent::DoorOpened);
+
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::DoorOpenBoltLocked);
+}
+
+void test_invalid_mode_fault_is_replaced_by_physical_contradiction(void)
+{
+    DoorFsm fsm(DoorState::LockedClosed, OperatingMode::Standard, true, true);
+    fsm.start();
+
+    fsm.process(DoorEvent::ModeInvalid);
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::InvalidMode);
+
+    fsm.process(DoorEvent::DoorOpened);
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::DoorOpenBoltLocked);
+}
+
 void test_invalid_mode_error_does_not_recover_on_door_closed(void)
 {
     DoorFsm fsm(
@@ -826,7 +900,9 @@ int main(void)
     RUN_TEST(test_open_night_to_standard_gets_fresh_timer);
     RUN_TEST(test_locking_success);
     RUN_TEST(test_locking_door_open_aborts);
-    RUN_TEST(test_locking_rfid_reverses_to_unlock);
+    RUN_TEST(test_locking_rfid_queues_release_until_lock_completes);
+    RUN_TEST(test_locking_pending_release_unlocks_on_timeout);
+    RUN_TEST(test_lock_retry_wait_pending_release_unlocks_when_wait_finishes);
     RUN_TEST(test_lock_timeout_enters_wait);
     RUN_TEST(test_lock_retry_wait_restarts_lock);
     RUN_TEST(test_unlocked_open_door_closed_standard);
@@ -842,7 +918,7 @@ int main(void)
     RUN_TEST(test_max_open_timeout_faults);
     RUN_TEST(test_invalid_mode_faults_from_locked_closed);
     RUN_TEST(test_invalid_mode_faults_from_locking_and_removes_output);
-    RUN_TEST(test_lock_failure_after_two_retries);
+    RUN_TEST(test_lock_failure_after_five_backoff_retries);
     RUN_TEST(test_unlock_failure_after_two_retries);
 
     RUN_TEST(test_door_open_bolt_locked_fault_clears_when_door_closes_standard);
@@ -867,6 +943,8 @@ int main(void)
     RUN_TEST(test_error_open_night_unlocked_closed_skips_locked_guard);
     RUN_TEST(test_error_standard_open_recovers_when_bolt_unlocked);
     RUN_TEST(test_error_open_night_open_recovers_when_bolt_unlocked);
+    RUN_TEST(test_error_fault_updates_when_physical_contradiction_appears);
+    RUN_TEST(test_invalid_mode_fault_is_replaced_by_physical_contradiction);
     RUN_TEST(test_invalid_mode_error_does_not_recover_on_door_closed);
     RUN_TEST(test_invalid_mode_error_does_not_recover_on_bolt_unlocked);
     return UNITY_END();

@@ -18,8 +18,8 @@ This project is being developed with an emphasis on:
 
 > **Not yet ready for deployment on the real door.**
 >
-> The FSM and controller wrapper are under automated test, but the complete
-> Arduino build, hardware bench test and installation validation are still to be
+> The FSM/controller are under automated test and CI compiles the complete classic
+> Nano target. Hardware bench test and installation validation are still to be
 > completed.
 
 ## Architecture
@@ -86,8 +86,12 @@ everything else -> None
 
 The lock and unlock outputs are never intentionally asserted together.
 
-During a retry wait the command is `None`, giving an explicit one-second
-output-off period between attempts.
+During a retry wait the command is `None`. Unlock retries wait 1 s; lock
+retries use the configured 1/10/100/1000/10000 s back-off.
+
+A release request received during an in-flight lock operation is queued. The
+controller waits for that lock command to confirm or time out, then unlocks
+instead of accepting the locked state or starting another lock retry.
 
 ## Faults
 
@@ -153,7 +157,7 @@ door          30 ms
 bolt          20 ms
 RFID          10 ms
 exit button   30 ms
-mode switch   50 ms
+mode switch   1000 ms
 ```
 
 RFID and exit-button requests intentionally have different boot behaviour:
@@ -162,6 +166,10 @@ RFID and exit-button requests intentionally have different boot behaviour:
 - an exit button already held at boot is honoured when electronic control is
   enabled.
 
+At power-up the complete raw input set must remain unchanged for 100 ms before
+controller construction, but this qualification wait is capped at 2 s so a
+chattering input cannot prevent boot indefinitely.
+
 ## Outputs
 
 Current relay mapping:
@@ -169,7 +177,7 @@ Current relay mapping:
 ```text
 A3 -> RL4 -> Utopic puck T1 -> lock
 A2 -> RL3 -> Utopic puck T2 -> unlock
-A1 -> RL2 -> FAULT connector (currently unused)
+A1 -> RL2 -> FAULT connector
 A0 -> RL1 -> BlueBoard "Button" contacts
 ```
 
@@ -177,7 +185,12 @@ Driving A3 or A2 HIGH energises the corresponding relay and pulls the Utopic
 puck input LOW.
 
 The Arduino hardware adapter uses break-before-make when changing lock command:
-both lock and unlock relays are released before asserting a new command.
+after either motor relay is released, the opposite relay cannot energise for
+250 ms. This dead time is retained across intermediate `None` commands.
+
+The FAULT relay is active for any FSM fault and also after the second failed
+lock attempt while the longer retry back-off continues. A later successful lock
+clears this degraded indication.
 
 ## Timing
 
@@ -187,15 +200,17 @@ Current parameters:
 Standard auto-lock        5 s
 Open Night period         2 h
 door-open warning         30 s
-maximum door-open time    5 min
+maximum door-open time    5 min Standard / 2 h Open Night
 lock attempt timeout      5 s
 unlock attempt timeout    5 s
-retry delay               1 s
-maximum lock retries      2
+lock retry delays         1 s, 10 s, 100 s, 1000 s, 10000 s
+maximum lock retries      5
+unlock retry delay        1 s
 maximum unlock retries    2
 ```
 
-Retry count means two retries **after** the initial attempt.
+Retry counts are retries **after** the initial attempt. Locking now uses five
+back-off retries; unlocking retains two 1 s retries.
 
 Timing code uses unsigned `uint32_t` subtraction so it remains correct across
 Arduino `millis()` rollover.
@@ -221,7 +236,7 @@ The established FSM coverage is:
 ```text
 lines       100%
 functions   100%
-branches    92.3%
+branches    88.9% (combined FSM + controller measurement before review fixes)
 ```
 
 The remaining uncovered branches are compiler-generated short-circuit paths
@@ -238,10 +253,17 @@ A separate controller/wrapper test suite exercises debounce, startup handling,
 RFID boot qualification, timeout generation, stale-timer cancellation,
 same-tick ordering and `millis()` rollover.
 
-CI is configured to build and run the FSM and controller test executables
-before collecting combined coverage.
+CI builds and runs the FSM and controller test executables before collecting
+combined coverage, and separately compiles the complete sketch for a classic
+Arduino Nano with pinned AVR-core and ETL versions.
 
 Third-party Unity/ETL code and test sources are excluded from project coverage.
+
+For controlled bench commissioning, defining `DOOR_SERIAL_DIAGNOSTICS=1` in the
+sketch enables a compact 115200-baud status line once per second. It reports
+time, numeric state/mode/fault/command values, fault indication and debounced
+input levels. It is disabled by default; opening USB serial may reset the Nano
+via DTR.
 
 ## Repository layout
 
@@ -249,7 +271,7 @@ The intended source layout is:
 
 ```text
 door-access-control/
-├── door_access_control.ino
+├── door-access-control.ino
 ├── src/
 │   ├── controller_config.h
 │   ├── controller_types.h

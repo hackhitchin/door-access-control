@@ -5,6 +5,7 @@
 #include <Embedded_Template_Library.h>
 #endif
 #include <etl/state_chart.h>
+#include "controller_config.h"
 #include "controller_types.h"
 
 class DoorFsm
@@ -38,6 +39,7 @@ private:
     static uint8_t id(DoorEvent event);
 
     void observe(DoorEvent event);
+    void refreshObservableFault();
 
     // Guards. ETL state_chart requires non-const guard member functions.
     bool modeAllowsElectronicControl();
@@ -46,7 +48,9 @@ private:
 
     bool canRetryLock();
     bool canRetryUnlock();
+    bool releasePending();
 
+    bool physicalOpenBoltLocked();
     bool physicalLockedClosed();
     bool physicalUnlockedClosed();
     bool physicalUnlockedOpen();
@@ -63,6 +67,7 @@ private:
 
     void countLockRetry();
     void countUnlockRetry();
+    void setReleasePending();
 
     void restartAutoLockTimer();
     void noteOpenTimeout();
@@ -83,6 +88,7 @@ private:
     OperatingMode mode_;
     bool doorClosed_;
     bool boltLocked_;
+    bool releasePending_;
 
     uint8_t lockRetries_;
     uint8_t unlockRetries_;

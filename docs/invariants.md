@@ -153,21 +153,25 @@ the design because the physical condition cannot be identified reliably enough.
 
 # 3. Release-request invariants
 
-## INV-010 — Valid release request overrides active locking
+## INV-010 — Valid release request takes priority over an in-flight lock operation
 
 In Standard mode, either of the following valid requests:
 
     RFID_RELEASE_REQUEST
     EXIT_BUTTON_REQUEST
 
-must prevent continued intentional locking.
+must guarantee that the controller releases the door after any already-issued
+lock command reaches a known conclusion.
 
-If received while in `LOCKING`:
+If received while in `LOCKING`, the request is queued. The controller keeps the
+current lock attempt active until `BOLT_LOCKED` or `LOCK_TIMEOUT`, then enters
+`UNLOCKING` instead of accepting the locked state or starting another lock
+retry. A request received in `LOCK_RETRY_WAIT` is similarly queued and prevents
+the next lock retry.
 
-    release T1
-    transition to UNLOCKING
-
-Open Night selection similarly overrides active locking.
+This avoids depending on whether the Utopic/HAI aborts or completes a previously
+issued one-shot lock command when T1 is released. Open Night selection uses the
+same pending-release behaviour during a lock operation.
 
 ---
 
@@ -293,11 +297,17 @@ A timeout must either:
 
 Retry counters must not include the initial attempt.
 
-With:
+For locking, `MAX_LOCK_RETRIES = 5`, so the maximum sequence is:
 
-    MAX_*_RETRIES = 2
+    initial attempt
+    retry 1
+    retry 2
+    retry 3
+    retry 4
+    retry 5
+    ERROR
 
-the maximum sequence is:
+For unlocking, `MAX_UNLOCK_RETRIES = 2`, so the maximum sequence is:
 
     initial attempt
     retry 1
@@ -341,9 +351,8 @@ or:
 
     UNLOCK_RETRY_WAIT
 
-for at least:
-
-    RETRY_DELAY_MS
+for the configured delay for that attempt. Lock retry waits use the defined
+1/10/100/1000/10000 s back-off; unlock retry waits use `RETRY_DELAY_MS` (1 s).
 
 During either retry-wait state:
 

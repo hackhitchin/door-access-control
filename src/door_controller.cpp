@@ -2,14 +2,17 @@
 
 DoorState DoorController::initialStateFor(const ControllerInputs& inputs)
 {
+    // Disabled is authoritative: electronic control remains off regardless of
+    // sensor combination. Contradictory sensors are evaluated when control is
+    // enabled again.
+    if (inputs.mode == OperatingMode::Disabled) {
+        return DoorState::Disabled;
+    }
+
     // Contradictory open + locked is pushed through the existing
     // DoorOpenBoltLocked fault path immediately after fsm_.start().
     if (!inputs.doorClosed && inputs.boltLocked) {
         return DoorState::LockedClosed;
-    }
-
-    if (inputs.mode == OperatingMode::Disabled) {
-        return DoorState::Disabled;
     }
 
     if (inputs.doorClosed && inputs.boltLocked) {
@@ -19,9 +22,12 @@ DoorState DoorController::initialStateFor(const ControllerInputs& inputs)
     }
 
     if (inputs.doorClosed && !inputs.boltLocked) {
-        return (inputs.mode == OperatingMode::Standard)
-                   ? DoorState::Locking
-                   : DoorState::UnlockedClosed;
+        // A held exit button at boot is already a release request. No lock
+        // command has yet been issued, so do not start one merely to queue it.
+        if (inputs.mode == OperatingMode::Standard && !inputs.exitPressed) {
+            return DoorState::Locking;
+        }
+        return DoorState::UnlockedClosed;
     }
 
     return DoorState::UnlockedOpen;
@@ -48,8 +54,11 @@ DoorController::DoorController(const ControllerInputs& initialInputs,
 {
     fsm_.start();
 
-    // Startup fault priority: contradictory physical sensors before mode fault.
-    if (!initialInputs.doorClosed && initialInputs.boltLocked) {
+    // Disabled suppresses electronic fault handling at startup. Once enabled,
+    // contradictory physical sensors take priority over an invalid mode.
+    if (initialInputs.mode == OperatingMode::Disabled) {
+        initialiseTimers(nowMs);
+    } else if (!initialInputs.doorClosed && initialInputs.boltLocked) {
         dispatch(DoorEvent::DoorOpened, nowMs);
     } else if (initialInputs.mode == OperatingMode::Invalid) {
         dispatch(DoorEvent::ModeInvalid, nowMs);
@@ -117,6 +126,10 @@ void DoorController::processModeInput(uint32_t nowMs, OperatingMode rawValue)
         dispatch(DoorEvent::ModeInvalid, nowMs);
         break;
     }
+
+    if (fsm_.state() == DoorState::UnlockedOpen) {
+        maxOpenTimer_.start(nowMs, maxOpenDurationForMode());
+    }
 }
 
 void DoorController::processExitInput(uint32_t nowMs, bool rawValue)
@@ -147,6 +160,17 @@ void DoorController::dispatch(DoorEvent event, uint32_t nowMs)
     const DoorState previousState = fsm_.state();
     fsm_.process(event);
     afterFsmEvent(previousState, nowMs);
+    reconcileTransientCompletion(nowMs);
+}
+
+void DoorController::reconcileTransientCompletion(uint32_t nowMs)
+{
+    // Completion is level-sensitive as well as edge-sensitive. A transition can
+    // enter Locking/Unlocking after the corresponding bolt edge has already
+    // happened, so do not wait for an edge that may never arrive.
+    if (fsm_.state() == DoorState::Unlocking && !bolt_.value()) {
+        dispatch(DoorEvent::BoltUnlocked, nowMs);
+    }
 }
 
 void DoorController::afterFsmEvent(DoorState previousState, uint32_t nowMs)
@@ -162,8 +186,9 @@ void DoorController::afterFsmEvent(DoorState previousState, uint32_t nowMs)
             operationTimer_.stop();
         }
 
-        if (newState == DoorState::LockRetryWait ||
-            newState == DoorState::UnlockRetryWait) {
+        if (newState == DoorState::LockRetryWait) {
+            retryTimer_.start(nowMs, lockRetryDelayMs(fsm_.lockRetries()));
+        } else if (newState == DoorState::UnlockRetryWait) {
             retryTimer_.start(nowMs, RETRY_DELAY_MS);
         } else {
             retryTimer_.stop();
@@ -171,7 +196,7 @@ void DoorController::afterFsmEvent(DoorState previousState, uint32_t nowMs)
 
         if (newState == DoorState::UnlockedOpen) {
             openWarningTimer_.start(nowMs, OPEN_TIMEOUT_MS);
-            maxOpenTimer_.start(nowMs, MAX_OPEN_TIMEOUT_MS);
+            maxOpenTimer_.start(nowMs, maxOpenDurationForMode());
         } else {
             openWarningTimer_.stop();
             maxOpenTimer_.stop();
@@ -206,7 +231,7 @@ void DoorController::initialiseTimers(uint32_t nowMs)
 
     if (state == DoorState::UnlockedOpen) {
         openWarningTimer_.start(nowMs, OPEN_TIMEOUT_MS);
-        maxOpenTimer_.start(nowMs, MAX_OPEN_TIMEOUT_MS);
+        maxOpenTimer_.start(nowMs, maxOpenDurationForMode());
     }
 
     if (state == DoorState::UnlockedClosed &&
@@ -220,6 +245,25 @@ uint32_t DoorController::autoLockDurationForMode() const
     return (fsm_.mode() == OperatingMode::OpenNight)
                ? OPEN_NIGHT_TIME_MS
                : AUTO_LOCK_TIME_MS;
+}
+
+uint32_t DoorController::maxOpenDurationForMode() const
+{
+    return (fsm_.mode() == OperatingMode::OpenNight)
+               ? OPEN_NIGHT_MAX_OPEN_TIMEOUT_MS
+               : MAX_OPEN_TIMEOUT_MS;
+}
+
+uint32_t DoorController::lockRetryDelayMs(uint8_t retryNumber) const
+{
+    switch (retryNumber) {
+    case 1: return LOCK_RETRY_1_DELAY_MS;
+    case 2: return LOCK_RETRY_2_DELAY_MS;
+    case 3: return LOCK_RETRY_3_DELAY_MS;
+    case 4: return LOCK_RETRY_4_DELAY_MS;
+    case 5:
+    default: return LOCK_RETRY_5_DELAY_MS;
+    }
 }
 
 void DoorController::processTimers(uint32_t nowMs)

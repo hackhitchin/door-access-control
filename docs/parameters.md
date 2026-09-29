@@ -17,31 +17,34 @@ timings should be measured on the installed hardware and adjusted if required.
 |---|---:|---|
 | `AUTO_LOCK_TIME_MS` | 5,000 ms | Delay before relocking in Standard mode |
 | `OPEN_TIMEOUT_MS` | 30,000 ms | Door-open warning/diagnostic threshold |
-| `MAX_OPEN_TIMEOUT_MS` | 300,000 ms | Door-open duration that raises an error |
+| `MAX_OPEN_TIMEOUT_MS` | 300,000 ms | Standard-mode door-open duration that raises an error |
+| `OPEN_NIGHT_MAX_OPEN_TIMEOUT_MS` | 7,200,000 ms | Open Night door-open duration that raises an error |
 | `OPEN_NIGHT_TIME_MS` | 7,200,000 ms | Open Night release duration |
 | `LOCK_TIME_MS` | 5,000 ms | Maximum duration of one lock attempt |
 | `UNLOCK_TIME_MS` | 5,000 ms | Maximum duration of one unlock attempt |
-| `RETRY_DELAY_MS` | 1,000 ms | Delay between failed actuation attempts |
-| `MAX_LOCK_RETRIES` | 2 | Retries after the initial lock attempt |
+| `RETRY_DELAY_MS` | 1,000 ms | Delay between failed unlock attempts |
+| lock retry back-off | 1 s, 10 s, 100 s, 1,000 s, 10,000 s | Delays before lock retries 1-5 |
+| `MAX_LOCK_RETRIES` | 5 | Retries after the initial lock attempt |
 | `MAX_UNLOCK_RETRIES` | 2 | Retries after the initial unlock attempt |
+| `RELAY_REVERSAL_DEADTIME_MS` | 250 ms | Minimum off-time before energising the opposite relay |
+| `STARTUP_INPUT_STABLE_MS` | 100 ms | Required unchanged startup input interval |
+| `STARTUP_INPUT_TIMEOUT_MS` | 2,000 ms | Maximum startup qualification wait |
 
 ---
 
 # 2. Suggested firmware constants
 
 ```cpp
-constexpr uint32_t AUTO_LOCK_TIME_MS      = 5'000;
-constexpr uint32_t OPEN_TIMEOUT_MS         = 30'000;
-constexpr uint32_t MAX_OPEN_TIMEOUT_MS     = 300'000;
-
-constexpr uint32_t OPEN_NIGHT_TIME_MS      = 7'200'000; // 2 hours
-
-constexpr uint32_t LOCK_TIME_MS            = 5'000;
-constexpr uint32_t UNLOCK_TIME_MS          = 5'000;
-constexpr uint32_t RETRY_DELAY_MS          = 1'000;
-
-constexpr uint8_t MAX_LOCK_RETRIES         = 2;
-constexpr uint8_t MAX_UNLOCK_RETRIES       = 2;
+constexpr uint32_t AUTO_LOCK_TIME_MS = 5000UL;
+constexpr uint32_t OPEN_TIMEOUT_MS = 30000UL;
+constexpr uint32_t MAX_OPEN_TIMEOUT_MS = 300000UL;
+constexpr uint32_t OPEN_NIGHT_MAX_OPEN_TIMEOUT_MS = 7200000UL;
+constexpr uint32_t OPEN_NIGHT_TIME_MS = 7200000UL;
+constexpr uint32_t LOCK_TIME_MS = 5000UL;
+constexpr uint32_t UNLOCK_TIME_MS = 5000UL;
+constexpr uint32_t RETRY_DELAY_MS = 1000UL;
+constexpr uint8_t MAX_LOCK_RETRIES = 5U;
+constexpr uint8_t MAX_UNLOCK_RETRIES = 2U;
 ```
 
 ---
@@ -50,30 +53,21 @@ constexpr uint8_t MAX_UNLOCK_RETRIES       = 2;
 
 The retry counters count retries, not total attempts.
 
-With:
+Locking uses five retries after the initial attempt. If the bolt sensor never
+confirms locked, the controller releases T1 between attempts and waits:
 
-    MAX_LOCK_RETRIES = 2
+    1 s -> 10 s -> 100 s -> 1,000 s -> 10,000 s
 
-the sequence is:
+After the fifth retry attempt times out, the controller enters
+`ERROR / LockFailed`. Door opening, a release request, Disabled mode, or a
+successful bolt-locked indication interrupts the retry sequence. A valid release
+request during `LOCKING` or `LOCK_RETRY_WAIT` is queued and suppresses any
+further lock retry; the controller proceeds to `UNLOCKING` when the current
+lock operation reaches a known completion/timeout point.
 
-    initial lock attempt
-    retry 1
-    retry 2
-    ERROR
-
-The same rule applies to unlocking.
-
-After a failed attempt:
-
-1. release the active T1/T2 command;
-2. wait `RETRY_DELAY_MS`;
-3. increment the retry counter;
-4. begin another attempt;
-5. restart the corresponding operation timeout.
+Unlocking retains two retries with a 1 s wait between attempts.
 
 A successful lock/unlock clears the corresponding retry counter.
-
----
 
 # 4. Standard mode timing
 
@@ -90,7 +84,7 @@ In Standard mode:
 
 It does not command the lock.
 
-`MAX_OPEN_TIMEOUT_MS` raises an open-too-long fault.
+`MAX_OPEN_TIMEOUT_MS` raises an open-too-long fault in Standard mode.
 
 ---
 
@@ -106,8 +100,9 @@ represented by:
 
     OPEN_NIGHT_TIME_MS = 7,200,000
 
-The detailed Open Night timer lifecycle will be verified during implementation,
-but Standard-mode auto-lock timing is not used while Open Night remains active.
+While Open Night is active, the maximum continuous door-open interval is also
+2 hours (`OPEN_NIGHT_MAX_OPEN_TIMEOUT_MS`). The 30 s warning remains available
+for diagnostics.
 
 ---
 
