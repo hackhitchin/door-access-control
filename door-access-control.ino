@@ -53,10 +53,13 @@ bool sameInputs(const ControllerInputs& a, const ControllerInputs& b)
 ControllerInputs readStableStartupInputs()
 {
     ControllerInputs candidate = readInputs();
-    uint32_t stableSinceMs = millis();
+    const uint32_t qualificationStartedMs = millis();
+    uint32_t stableSinceMs = qualificationStartedMs;
 
     while (static_cast<uint32_t>(millis() - stableSinceMs) <
-           STARTUP_INPUT_STABLE_MS) {
+               STARTUP_INPUT_STABLE_MS &&
+           static_cast<uint32_t>(millis() - qualificationStartedMs) <
+               STARTUP_INPUT_TIMEOUT_MS) {
         const ControllerInputs current = readInputs();
         if (!sameInputs(current, candidate)) {
             candidate = current;
@@ -65,6 +68,8 @@ ControllerInputs readStableStartupInputs()
         delay(1);
     }
 
+    // A permanently chattering input must not prevent the controller booting.
+    // The normal debouncers and fault handling take over from this sample.
     return candidate;
 }
 

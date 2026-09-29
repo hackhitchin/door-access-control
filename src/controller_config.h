@@ -26,3 +26,4 @@ constexpr uint32_t DEBOUNCE_MODE_MS      = 1000UL;
 
 constexpr uint32_t RELAY_REVERSAL_DEADTIME_MS = 250UL;
 constexpr uint32_t STARTUP_INPUT_STABLE_MS     = 100UL;
+constexpr uint32_t STARTUP_INPUT_TIMEOUT_MS    = 2000UL;
