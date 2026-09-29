@@ -41,6 +41,33 @@ ControllerInputs readInputs()
     return inputs;
 }
 
+bool sameInputs(const ControllerInputs& a, const ControllerInputs& b)
+{
+    return a.doorClosed == b.doorClosed &&
+           a.boltLocked == b.boltLocked &&
+           a.rfidActive == b.rfidActive &&
+           a.exitPressed == b.exitPressed &&
+           a.mode == b.mode;
+}
+
+ControllerInputs readStableStartupInputs()
+{
+    ControllerInputs candidate = readInputs();
+    uint32_t stableSinceMs = millis();
+
+    while (static_cast<uint32_t>(millis() - stableSinceMs) <
+           STARTUP_INPUT_STABLE_MS) {
+        const ControllerInputs current = readInputs();
+        if (!sameInputs(current, candidate)) {
+            candidate = current;
+            stableSinceMs = millis();
+        }
+        delay(1);
+    }
+
+    return candidate;
+}
+
 void configurePins()
 {
     pinMode(PIN_LOCK_STATE, INPUT_PULLUP);
@@ -68,29 +95,72 @@ DoorController& controller()
 {
     // First called from setup(), after pin configuration.
     // Function-local static avoids heap allocation.
-    static DoorController instance(readInputs(), millis());
+    static const ControllerInputs stableInputs = readStableStartupInputs();
+    static DoorController instance(stableInputs, millis());
     return instance;
 }
 
-void applyLockCommand(LockCommand command)
+void applyLockCommand(LockCommand command, uint32_t nowMs)
 {
-    static LockCommand applied = LockCommand::None;
+    static LockCommand energised = LockCommand::None;
+    static LockCommand pending = LockCommand::None;
+    static bool reversalDeadtimeActive = false;
+    static uint32_t reversalStartedMs = 0;
 
-    if (command == applied) {
+    if (command == LockCommand::None) {
+        digitalWrite(PIN_LOCK_RELAY, LOW);
+        digitalWrite(PIN_UNLOCK_RELAY, LOW);
+        energised = LockCommand::None;
+        pending = LockCommand::None;
+        reversalDeadtimeActive = false;
         return;
     }
 
-    // Break-before-make prevents any overlap of T1 and T2.
-    digitalWrite(PIN_LOCK_RELAY, LOW);
-    digitalWrite(PIN_UNLOCK_RELAY, LOW);
+    if (reversalDeadtimeActive) {
+        // Outputs have remained off since reversalStartedMs. The requested
+        // direction may change during dead-time without restarting the timer.
+        pending = command;
+        if (static_cast<uint32_t>(nowMs - reversalStartedMs) <
+            RELAY_REVERSAL_DEADTIME_MS) {
+            return;
+        }
+
+        digitalWrite(PIN_LOCK_RELAY, LOW);
+        digitalWrite(PIN_UNLOCK_RELAY, LOW);
+        if (pending == LockCommand::Lock) {
+            digitalWrite(PIN_LOCK_RELAY, HIGH);
+        } else {
+            digitalWrite(PIN_UNLOCK_RELAY, HIGH);
+        }
+
+        energised = pending;
+        pending = LockCommand::None;
+        reversalDeadtimeActive = false;
+        return;
+    }
+
+    if (command == energised) {
+        return;
+    }
+
+    if (energised != LockCommand::None) {
+        // Real break-before-make: release the old mechanical relay and leave
+        // both HAI inputs open for 250 ms before energising the opposite one.
+        digitalWrite(PIN_LOCK_RELAY, LOW);
+        digitalWrite(PIN_UNLOCK_RELAY, LOW);
+        energised = LockCommand::None;
+        pending = command;
+        reversalStartedMs = nowMs;
+        reversalDeadtimeActive = true;
+        return;
+    }
 
     if (command == LockCommand::Lock) {
         digitalWrite(PIN_LOCK_RELAY, HIGH);
-    } else if (command == LockCommand::Unlock) {
+    } else {
         digitalWrite(PIN_UNLOCK_RELAY, HIGH);
     }
-
-    applied = command;
+    energised = command;
 }
 
 } // namespace
@@ -100,7 +170,7 @@ void setup()
     configurePins();
 
     DoorController& c = controller();
-    applyLockCommand(c.lockCommand());
+    applyLockCommand(c.lockCommand(), millis());
 }
 
 void loop()
@@ -110,5 +180,5 @@ void loop()
     DoorController& c = controller();
     c.tick(nowMs, readInputs());
 
-    applyLockCommand(c.lockCommand());
+    applyLockCommand(c.lockCommand(), nowMs);
 }

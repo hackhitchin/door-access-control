@@ -23,3 +23,6 @@ constexpr uint32_t DEBOUNCE_BOLT_MS      = 20UL;
 constexpr uint32_t DEBOUNCE_RFID_MS      = 10UL;
 constexpr uint32_t DEBOUNCE_EXIT_MS      = 30UL;
 constexpr uint32_t DEBOUNCE_MODE_MS      = 1000UL;
+
+constexpr uint32_t RELAY_REVERSAL_DEADTIME_MS = 250UL;
+constexpr uint32_t STARTUP_INPUT_STABLE_MS     = 100UL;
