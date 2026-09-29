@@ -317,6 +317,43 @@ void test_max_open_timeout_faults(void)
     EXPECT_FAULT(fsm, FaultCode::DoorOpenTooLong);
 }
 
+void test_mode_change_while_open_restarts_max_open_timer_for_new_mode(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::Standard, false, false);
+
+    DoorController controller(inputs, 0);
+
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    // Change to Open Night.
+    inputs.mode = OperatingMode::OpenNight;
+    controller.tick(1000, inputs);
+    controller.tick(1000 + DEBOUNCE_MODE_MS, inputs);
+
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    // Standard's old 5-minute deadline must no longer fault.
+    controller.tick(MAX_OPEN_TIMEOUT_MS + 1, inputs);
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    // But Open Night's two-hour deadline should.
+    const uint32_t modeChangeTime = 1000 + DEBOUNCE_MODE_MS;
+
+    controller.tick(
+        modeChangeTime + OPEN_NIGHT_MAX_OPEN_TIMEOUT_MS - 1,
+        inputs
+    );
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    controller.tick(
+        modeChangeTime + OPEN_NIGHT_MAX_OPEN_TIMEOUT_MS,
+        inputs
+    );
+    EXPECT_STATE(controller, DoorState::Error);
+    EXPECT_FAULT(controller, FaultCode::DoorOpenTooLong);
+}
+
 void test_invalid_mode_faults_from_locked_closed(void)
 {
     DoorFsm fsm(DoorState::LockedClosed, OperatingMode::Standard, true, true);
@@ -887,6 +924,7 @@ int main(void)
 
     RUN_TEST(test_door_open_bolt_locked_fault_clears_when_door_closes_standard);
     RUN_TEST(test_door_open_bolt_locked_fault_clears_when_bolt_retracts);
+    RUN_TEST(test_mode_change_while_open_restarts_max_open_timer_for_new_mode);
     RUN_TEST(test_invalid_mode_clears_to_disabled);
     RUN_TEST(test_invalid_mode_clears_to_standard_locked);
     RUN_TEST(test_invalid_mode_clears_to_open_night_and_unlocks_if_locked);
