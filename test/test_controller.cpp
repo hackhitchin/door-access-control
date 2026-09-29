@@ -748,6 +748,26 @@ void test_max_open_timeout_enters_fault(void)
     EXPECT_COMMAND(controller, LockCommand::None);
 }
 
+void test_open_night_max_open_timeout_is_two_hours(void)
+{
+    ControllerInputs inputs =
+        makeInputs(OperatingMode::OpenNight, false, false);
+
+    DoorController controller(inputs, 0);
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    controller.tick(MAX_OPEN_TIMEOUT_MS, inputs);
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+    EXPECT_FAULT(controller, FaultCode::None);
+
+    controller.tick(OPEN_NIGHT_MAX_OPEN_TIMEOUT_MS - 1UL, inputs);
+    EXPECT_STATE(controller, DoorState::UnlockedOpen);
+
+    controller.tick(OPEN_NIGHT_MAX_OPEN_TIMEOUT_MS, inputs);
+    EXPECT_STATE(controller, DoorState::Error);
+    EXPECT_FAULT(controller, FaultCode::DoorOpenTooLong);
+}
+
 void test_closing_door_cancels_old_open_timers(void)
 {
     ControllerInputs inputs =
@@ -944,31 +964,39 @@ void test_rfid_request_wins_if_it_debounces_on_auto_lock_tick(void)
 // Full wrapper-timed retry sequences.
 // -----------------------------------------------------------------------------
 
-void test_lock_attempt_plus_two_retries_ends_in_lock_failed(void)
+void test_lock_attempt_uses_backoff_then_ends_in_lock_failed(void)
 {
     ControllerInputs inputs =
         makeInputs(OperatingMode::Standard, true, false);
 
     DoorController controller(inputs, 0);
 
-    controller.tick(5000, inputs);
-    EXPECT_STATE(controller, DoorState::LockRetryWait);
-    EXPECT_COMMAND(controller, LockCommand::None);
+    const uint32_t retryStarts[] = {
+        6000UL, 21000UL, 126000UL, 1131000UL, 11136000UL
+    };
+    const uint32_t retryWaitStarts[] = {
+        5000UL, 11000UL, 26000UL, 131000UL, 1136000UL
+    };
+    const uint32_t retryDelays[] = {
+        LOCK_RETRY_1_DELAY_MS, LOCK_RETRY_2_DELAY_MS,
+        LOCK_RETRY_3_DELAY_MS, LOCK_RETRY_4_DELAY_MS,
+        LOCK_RETRY_5_DELAY_MS
+    };
 
-    controller.tick(6000, inputs);
-    EXPECT_STATE(controller, DoorState::Locking);
-    EXPECT_COMMAND(controller, LockCommand::Lock);
+    for (uint8_t i = 0; i < MAX_LOCK_RETRIES; ++i) {
+        controller.tick(retryWaitStarts[i], inputs);
+        EXPECT_STATE(controller, DoorState::LockRetryWait);
+        EXPECT_COMMAND(controller, LockCommand::None);
 
-    controller.tick(11000, inputs);
-    EXPECT_STATE(controller, DoorState::LockRetryWait);
-    EXPECT_COMMAND(controller, LockCommand::None);
+        controller.tick(retryWaitStarts[i] + retryDelays[i] - 1UL, inputs);
+        EXPECT_STATE(controller, DoorState::LockRetryWait);
 
-    controller.tick(12000, inputs);
-    EXPECT_STATE(controller, DoorState::Locking);
-    EXPECT_COMMAND(controller, LockCommand::Lock);
+        controller.tick(retryStarts[i], inputs);
+        EXPECT_STATE(controller, DoorState::Locking);
+        EXPECT_COMMAND(controller, LockCommand::Lock);
+    }
 
-    controller.tick(17000, inputs);
-
+    controller.tick(11141000UL, inputs);
     EXPECT_STATE(controller, DoorState::Error);
     EXPECT_FAULT(controller, FaultCode::LockFailed);
     EXPECT_COMMAND(controller, LockCommand::None);
@@ -1122,6 +1150,7 @@ int main(void)
 
     RUN_TEST(test_open_warning_fires_without_faulting);
     RUN_TEST(test_max_open_timeout_enters_fault);
+    RUN_TEST(test_open_night_max_open_timeout_is_two_hours);
     RUN_TEST(test_closing_door_cancels_old_open_timers);
 
     RUN_TEST(test_successful_lock_cancels_old_lock_timeout);
@@ -1135,7 +1164,7 @@ int main(void)
     RUN_TEST(test_disabled_mode_wins_if_it_debounces_on_lock_timeout_tick);
     RUN_TEST(test_rfid_request_wins_if_it_debounces_on_auto_lock_tick);
 
-    RUN_TEST(test_lock_attempt_plus_two_retries_ends_in_lock_failed);
+    RUN_TEST(test_lock_attempt_uses_backoff_then_ends_in_lock_failed);
     RUN_TEST(test_success_during_lock_retry_wait_prevents_another_attempt);
 
     RUN_TEST(test_representative_sequence_always_has_state_appropriate_output);

@@ -73,6 +73,8 @@ private:
     void processTimers(uint32_t nowMs);
 
     uint32_t autoLockDurationForMode() const;
+    uint32_t maxOpenDurationForMode() const;
+    uint32_t lockRetryDelayMs(uint8_t retryNumber) const;
 
     DoorFsm fsm_;
 

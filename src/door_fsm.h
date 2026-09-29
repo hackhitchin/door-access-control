@@ -5,6 +5,7 @@
 #include <Embedded_Template_Library.h>
 #endif
 #include <etl/state_chart.h>
+#include "controller_config.h"
 #include "controller_types.h"
 
 class DoorFsm

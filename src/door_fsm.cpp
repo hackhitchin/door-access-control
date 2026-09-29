@@ -1,11 +1,5 @@
 #include "door_fsm.h"
 
-namespace
-{
-constexpr uint8_t MAX_LOCK_RETRIES   = 2;
-constexpr uint8_t MAX_UNLOCK_RETRIES = 2;
-}
-
 const DoorFsm::Transition DoorFsm::transitions_[] = {
     // LOCKED_CLOSED
     Transition(id(DoorState::LockedClosed), id(DoorEvent::RfidReleaseRequest),

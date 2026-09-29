@@ -338,30 +338,25 @@ void test_invalid_mode_faults_from_locking_and_removes_output(void)
     EXPECT_COMMAND(fsm, LockCommand::None);
 }
 
-void test_lock_failure_after_two_retries(void)
+void test_lock_failure_after_five_backoff_retries(void)
 {
     DoorFsm fsm(DoorState::Locking, OperatingMode::Standard, true, false);
     fsm.start();
 
-    fsm.process(DoorEvent::LockTimeout);
-    EXPECT_STATE(fsm, DoorState::LockRetryWait);
-    TEST_ASSERT_EQUAL_UINT8(1, fsm.lockRetries());
+    for (uint8_t retry = 1; retry <= MAX_LOCK_RETRIES; ++retry) {
+        fsm.process(DoorEvent::LockTimeout);
+        EXPECT_STATE(fsm, DoorState::LockRetryWait);
+        TEST_ASSERT_EQUAL_UINT8(retry, fsm.lockRetries());
 
-    fsm.process(DoorEvent::RetryDelayElapsed);
-    EXPECT_STATE(fsm, DoorState::Locking);
-
-    fsm.process(DoorEvent::LockTimeout);
-    EXPECT_STATE(fsm, DoorState::LockRetryWait);
-    TEST_ASSERT_EQUAL_UINT8(2, fsm.lockRetries());
-
-    fsm.process(DoorEvent::RetryDelayElapsed);
-    EXPECT_STATE(fsm, DoorState::Locking);
+        fsm.process(DoorEvent::RetryDelayElapsed);
+        EXPECT_STATE(fsm, DoorState::Locking);
+    }
 
     fsm.process(DoorEvent::LockTimeout);
     EXPECT_STATE(fsm, DoorState::Error);
     EXPECT_FAULT(fsm, FaultCode::LockFailed);
     EXPECT_COMMAND(fsm, LockCommand::None);
-    TEST_ASSERT_EQUAL_UINT8(2, fsm.lockRetries());
+    TEST_ASSERT_EQUAL_UINT8(MAX_LOCK_RETRIES, fsm.lockRetries());
 }
 
 void test_unlock_failure_after_two_retries(void)
@@ -842,7 +837,7 @@ int main(void)
     RUN_TEST(test_max_open_timeout_faults);
     RUN_TEST(test_invalid_mode_faults_from_locked_closed);
     RUN_TEST(test_invalid_mode_faults_from_locking_and_removes_output);
-    RUN_TEST(test_lock_failure_after_two_retries);
+    RUN_TEST(test_lock_failure_after_five_backoff_retries);
     RUN_TEST(test_unlock_failure_after_two_retries);
 
     RUN_TEST(test_door_open_bolt_locked_fault_clears_when_door_closes_standard);
