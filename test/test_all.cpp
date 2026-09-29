@@ -441,14 +441,25 @@ void test_lock_failed_clears_when_bolt_becomes_locked(void)
 {
     DoorFsm fsm(DoorState::Locking, OperatingMode::Standard, true, false);
     fsm.start();
-    fsm.process(DoorEvent::LockTimeout);
-    fsm.process(DoorEvent::RetryDelayElapsed);
-    fsm.process(DoorEvent::LockTimeout);
-    fsm.process(DoorEvent::RetryDelayElapsed);
-    fsm.process(DoorEvent::LockTimeout);
-    EXPECT_STATE(fsm, DoorState::Error);
 
+    // Exhaust all configured retries.
+    for (uint8_t retry = 0; retry < MAX_LOCK_RETRIES; ++retry) {
+        fsm.process(DoorEvent::LockTimeout);
+        EXPECT_STATE(fsm, DoorState::LockRetryWait);
+
+        fsm.process(DoorEvent::RetryDelayElapsed);
+        EXPECT_STATE(fsm, DoorState::Locking);
+    }
+
+    // One final failed attempt after all retries are consumed.
+    fsm.process(DoorEvent::LockTimeout);
+
+    EXPECT_STATE(fsm, DoorState::Error);
+    EXPECT_FAULT(fsm, FaultCode::LockFailed);
+
+    // A subsequently observed successful physical lock clears the fault.
     fsm.process(DoorEvent::BoltLocked);
+
     EXPECT_STATE(fsm, DoorState::LockedClosed);
     EXPECT_FAULT(fsm, FaultCode::None);
     TEST_ASSERT_EQUAL_UINT8(0, fsm.lockRetries());
